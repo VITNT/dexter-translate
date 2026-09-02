@@ -13,6 +13,11 @@ CSL Words runs the released CADT 75-class temporal model directly in the
 browser. ASL Words is a separate WLASL/I3D integration and does not share the
 CSL model or preprocessing.
 
+## SignDex coverage
+
+The learning catalog contains all 26 ASL fingerspelling letters plus 3
+open-license ASL word videos, alongside the original 11 CSL visual references.
+
 ## Run Locally
 
 Install the Next.js dependencies, copy `.env.example` to `.env.local`, and run:

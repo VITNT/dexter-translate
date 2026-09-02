@@ -59,6 +59,22 @@ pages 1459–1469.
 - Fingerpose 0.1.0 — Andreas Schallwig; based on FingerPoseEstimate by Prasad
   Pai — MIT License — <https://github.com/andypotato/fingerpose>
 
+## Wikimedia Commons ASL reference videos
+
+SignDex includes three short American Sign Language reference clips from
+Wikimedia Commons:
+
+- “ASL BOOK justsign.ogv” by Richard Goodrow — CC BY 3.0 —
+  <https://commons.wikimedia.org/wiki/File:ASL_BOOK_justsign.ogv>
+- “Hello1.ogv” by E5SUON — CC BY-SA 3.0 —
+  <https://commons.wikimedia.org/wiki/File:Hello1.ogv>
+- “About- General sign.ogv” by Underresearched — CC BY-SA 3.0 —
+  <https://commons.wikimedia.org/wiki/File:About-_General_sign.ogv>
+
+The bundled WebM files are Wikimedia Commons-generated transcodes of the
+originals; no additional modifications were made by this project. License texts are available at <https://creativecommons.org/licenses/by/3.0/> and
+<https://creativecommons.org/licenses/by-sa/3.0/>.
+
 ## Fonts and icons
 
 - DM Sans, Manrope, Roboto, and Battambang are loaded through Google Fonts and

@@ -21,6 +21,11 @@ export default function Learn({ initialLanguage }) {
                   <span id="activeLanguageCode">{isCsl ? "CSL" : "ASL"}</span>
                 </div>
               </div>
+              <p className="dictionary-intro">
+                {isCsl
+                  ? "Browse the original CSL visual references."
+                  : "Browse English labels with verified visual references."}
+              </p>
               <label className="flashcard-switch-wrapper">
                 <div className="custom-switch">
                   <input type="checkbox" id="flashcardToggle" />
@@ -60,6 +65,12 @@ export default function Learn({ initialLanguage }) {
                 aria-label={`Search ${isCsl ? "CSL" : "ASL"} signs`}
                 autoComplete="off"
               />
+            </label>
+            <label className="dictionary-category-label" htmlFor="categoryFilter">
+              <span className="sr-only">Filter by category</span>
+              <select id="categoryFilter" name="sign-category" aria-label="Filter signs by category">
+                <option value="all">All categories</option>
+              </select>
             </label>
             <p className="dictionary-search-status" id="searchResultsStatus" role="status" aria-live="polite" />
           </div>

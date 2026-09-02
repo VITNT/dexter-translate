@@ -8,6 +8,7 @@ const translatorHtml = `${headerMarkup}\n${translatorMarkup}`;
 const translatorScript = fs.readFileSync(new URL("../../client/translator.js", import.meta.url), "utf8");
 const translatorStyles = fs.readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 const learnScript = fs.readFileSync(new URL("../../client/learn.js", import.meta.url), "utf8");
+const dictionarySource = fs.readFileSync(new URL("../../client/sign-dictionary.js", import.meta.url), "utf8");
 
 for (const [name, markup] of [["translator", translatorHtml], ["learn", `${headerMarkup}\n${learnMarkup}`]]) {
   const ids = [...markup.matchAll(/\bid=["']([^"']+)["']/g)].map(match => match[1]);
@@ -184,14 +185,14 @@ assert.match(translatorHtml, /id=["']backspaceWordBtn["']/, "Translator must exp
 assert.match(translatorScript, /backspaceWordBtn[^\n]+window\.backspaceWord/, "Backspace control must bind its handler.");
 assert.match(translatorScript, /window\.backspaceWord\s*=\s*function/, "Backspace control must have a callable handler.");
 assert.match(translatorScript, /sentenceBuilderDisplay\.lastChild\?\.remove\(\)/, "Backspace must remove the latest recognized item.");
-assert.match(
-  learnScript,
-  /if \(!availableCslReferenceForms\.has\(form\)\) return \[\];/,
-  "CSL Learn must omit model classes that have no approved reference image."
-);
 assert.match(learnScript, /card\.remove\(\)/, "Learn cards must disappear when every image candidate fails.");
 assert.doesNotMatch(learnScript, /Reference image unavailable/, "Learn must not display obsolete pictureless cards.");
+assert.match(learnScript, /item\.type === 'video'/, "SignDex must render motion-based sign references as video.");
+assert.match(dictionarySource, /aslAlphabet/, "The SignDex catalog must include the full ASL fingerspelling alphabet.");
+assert.match(dictionarySource, /const cslWords/, "The SignDex catalog must retain the original CSL words.");
+assert.match(dictionarySource, /images\/csl\/reference/, "The original CSL reference photos must remain available.");
 assert.match(learnMarkup, /id=["']signSearch["'][\s\S]*type=["']search["']/, "SignDex must expose a sign search field.");
+assert.match(learnMarkup, /id=["']categoryFilter["']/, "SignDex must expose a category filter.");
 assert.match(learnMarkup, /id=["']searchResultsStatus["'][\s\S]*aria-live=["']polite["']/, "Sign search must announce result counts.");
 assert.match(learnMarkup, /id=["']dictionaryEmptyState["']/, "Sign search must expose an empty state.");
 assert.doesNotMatch(learnMarkup, /id=["']flashcardToggle["'][^>]+defaultChecked/, "Flashcard mode must be off by default.");

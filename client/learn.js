@@ -1,41 +1,14 @@
+import { signDictionary } from './sign-dictionary';
+
 let currentLang = 'asl';
 let searchQuery = '';
-const aslVocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(word => ({ word }));
-let cslVocab = ['កម្ពុជា', 'ត្រូវ', 'ឆ្ងាញ់', 'អរគុណ', 'ខុស'].map(word => ({
-    word,
-    basePath: `images/csl/${word}`,
-    extensions: ['gif']
-}));
-const availableCslReferenceForms = new Set(['form_aa', 'form_ab', 'form_ac', 'form_u', 'form_v', 'form_x']);
-
-async function loadVocabs() {
-    try {
-        const response = await fetch('./models/csl/static-landmark-v1.json');
-        if (response.ok) {
-            const model = await response.json();
-            cslVocab.push(...model.classes.flatMap((form, index) => {
-                if (!availableCslReferenceForms.has(form)) return [];
-                return [{
-                    word: model.displayLabels[index] || form,
-                    form,
-                    basePath: `images/csl/reference/${form}`,
-                    extensions: ['jpg']
-                }];
-            }));
-        }
-    } catch (error) {
-        console.warn('Static CSL reference library is unavailable.', error);
-    }
-
-    const requestedLang = new URLSearchParams(window.location.search).get('lang');
-    switchLanguage(requestedLang === 'csl' ? 'csl' : 'asl');
-}
+let selectedCategory = 'all';
 
 window.switchLanguage = function(lang) {
     currentLang = lang;
+    selectedCategory = 'all';
     const isAsl = lang === 'asl';
 
-    // highlight the active language tab
     const aslTab = document.getElementById('tab-asl');
     const cslTab = document.getElementById('tab-csl');
     aslTab.classList.toggle('active', isAsl);
@@ -43,7 +16,6 @@ window.switchLanguage = function(lang) {
     aslTab.setAttribute('aria-pressed', String(isAsl));
     cslTab.setAttribute('aria-pressed', String(!isAsl));
 
-    // Keep SignDex as the product name and show the selected language separately.
     const languageCode = isAsl ? 'ASL' : 'CSL';
     document.getElementById('activeLanguageCode').innerText = languageCode;
     document.title = `SignDex | ${languageCode}`;
@@ -53,10 +25,10 @@ window.switchLanguage = function(lang) {
         searchInput.setAttribute('aria-label', `Search ${languageCode} signs`);
     }
 
-    // secretly update the url so sharing the link works, without reloading the page
     const newUrl = new URL(window.location);
     newUrl.searchParams.set('lang', lang);
     window.history.pushState({}, '', newUrl);
+    renderCategoryFilter();
     renderDictionary();
 };
 
@@ -67,63 +39,143 @@ window.toggleFlashcardMode = function() {
     );
 };
 
+function renderCategoryFilter() {
+    const filter = document.getElementById('categoryFilter');
+    if (!filter) return;
+
+    const categories = [...new Set(signDictionary[currentLang].map((entry) => entry.category))]
+        .sort((a, b) => a.localeCompare(b));
+    filter.innerHTML = [
+        '<option value="all">All categories</option>',
+        ...categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+    ].join('');
+    filter.value = selectedCategory;
+}
+
 function renderDictionary() {
     const grid = document.getElementById('dictGrid');
     grid.innerHTML = '';
-    const vocab = currentLang === 'asl' ? aslVocab : cslVocab;
     const normalizedQuery = normalizeSearchValue(searchQuery);
     document.querySelector('.dict-reference-chart')?.remove();
 
-    if (currentLang === 'csl' && !normalizedQuery) {
+    if (currentLang === 'csl' && !normalizedQuery && selectedCategory === 'all') {
         const chartCard = document.createElement('div');
         chartCard.className = 'dict-reference-chart';
-        chartCard.innerHTML = '<img src="images/csl/csl-reference-chart.png" alt="CSL reference chart">';
+        chartCard.innerHTML = '<img src="/images/csl/csl-reference-chart.png" alt="CSL reference chart">';
         grid.parentElement.insertBefore(chartCard, grid);
     }
 
-    for (const entry of vocab) {
-        const word = entry.word;
-        const cleanWord = word.trim().toLowerCase();
-        if (['idle', 'none', '', 'still'].includes(cleanWord)) continue;
-        const searchableText = `${word} ${entry.form || ''}`;
+    for (const entry of signDictionary[currentLang]) {
+        const searchableText = [entry.word, entry.translation, entry.category, ...(entry.aliases || [])].join(' ');
         if (normalizedQuery && !normalizeSearchValue(searchableText).includes(normalizedQuery)) continue;
-        const isDynamicAsl = currentLang === 'asl' && ['j', 'z'].includes(cleanWord);
-        const extensions = entry.extensions || (isDynamicAsl ? ['gif', 'png', 'jpg'] : ['png', 'jpg', 'gif']);
-        const basePath = entry.basePath ?? `images/${currentLang}/${cleanWord}`;
-        if (!basePath || !extensions.length) continue;
+        if (selectedCategory !== 'all' && entry.category !== selectedCategory) continue;
 
-        const card = document.createElement('div');
+        const card = document.createElement('article');
         card.className = 'dict-card';
-        card.dataset.word = cleanWord;
-        if (entry.form) card.dataset.form = entry.form;
+        card.dataset.word = normalizeSearchValue(entry.word);
+        card.dataset.category = entry.category;
+        card.tabIndex = 0;
+        card.setAttribute('aria-label', `${entry.word}${entry.translation ? ` — ${entry.translation}` : ''}`);
         card.addEventListener('click', (event) => {
-            if (event.target.closest('.dex-nav-dropdown-item')) return;
+            if (event.target.closest('a, button')) return;
             if (!grid.classList.contains('flashcard-active')) return;
-            const wasFlipped = card.classList.contains('flipped');
-            document.querySelectorAll('.dict-card.flipped').forEach(item => item.classList.remove('flipped'));
-            if (!wasFlipped) card.classList.add('flipped');
+            flipCard(card);
+        });
+        card.addEventListener('keydown', (event) => {
+            if (!grid.classList.contains('flashcard-active') || !['Enter', ' '].includes(event.key)) return;
+            event.preventDefault();
+            flipCard(card);
         });
 
+        const stepCount = entry.media.filter((item) => item.type === 'image').length;
+        const typeLabel = entry.media.some((item) => item.type === 'video')
+            ? 'Video'
+            : stepCount > 1
+                ? `${stepCount} steps`
+                : entry.category;
         card.innerHTML = `
             <div class="dict-card-inner">
-                <div class="dict-card-front"><span class="flashcard-text">${word}</span></div>
+                <div class="dict-card-front">
+                    <span class="flashcard-text">${escapeHtml(entry.word)}</span>
+                    ${entry.translation ? `<span class="flashcard-hint">${escapeHtml(entry.translation)}</span>` : ''}
+                </div>
                 <div class="dict-card-back">
-                    <div class="dict-img-placeholder loading">
-                        <img alt="${word} sign">
+                    <div class="dict-media" data-media-count="${entry.media.length}"></div>
+                    <div class="dict-label">
+                        <span class="dict-word">${escapeHtml(entry.word)}</span>
+                        ${entry.translation ? `<span class="dict-translation">${escapeHtml(entry.translation)}</span>` : ''}
+                        <span class="dict-media-badge">${escapeHtml(typeLabel)}</span>
                     </div>
-                    <div class="dict-label">${word}</div>
                 </div>
             </div>`;
         grid.appendChild(card);
-
-        loadBestImage(card, basePath, extensions, updateSearchResultsStatus);
+        loadEntryMedia(card, entry.media, updateSearchResultsStatus);
     }
 
     updateSearchResultsStatus();
 }
 
+function flipCard(card) {
+    const wasFlipped = card.classList.contains('flipped');
+    document.querySelectorAll('.dict-card.flipped').forEach((item) => item.classList.remove('flipped'));
+    if (!wasFlipped) card.classList.add('flipped');
+}
+
+function loadEntryMedia(card, media, onUnavailable) {
+    const container = card.querySelector('.dict-media');
+    let failedCount = 0;
+
+    for (const item of media) {
+        const frame = document.createElement('div');
+        frame.className = 'dict-media-frame loading';
+
+        const markLoaded = () => frame.classList.remove('loading');
+        const markUnavailable = () => {
+            failedCount += 1;
+            frame.remove();
+            if (failedCount === media.length) {
+                card.remove();
+                onUnavailable?.();
+            }
+        };
+
+        if (item.type === 'video') {
+            const element = document.createElement('video');
+            element.src = item.src;
+            element.autoplay = true;
+            element.loop = true;
+            element.muted = true;
+            element.playsInline = true;
+            element.preload = 'metadata';
+            element.setAttribute('aria-label', `${card.getAttribute('aria-label')} sign demonstration`);
+            element.addEventListener('loadeddata', markLoaded, { once: true });
+            element.addEventListener('error', markUnavailable, { once: true });
+            frame.appendChild(element);
+        } else {
+            const element = document.createElement('img');
+            element.src = item.src;
+            element.alt = `${card.getAttribute('aria-label')} sign${media.length > 1 ? ' step' : ''}`;
+            element.loading = 'lazy';
+            element.addEventListener('load', markLoaded, { once: true });
+            element.addEventListener('error', markUnavailable, { once: true });
+            frame.appendChild(element);
+        }
+
+        container.appendChild(frame);
+    }
+}
+
 function normalizeSearchValue(value) {
     return String(value).normalize('NFKC').trim().toLocaleLowerCase();
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
 }
 
 function updateSearchResultsStatus() {
@@ -135,38 +187,22 @@ function updateSearchResultsStatus() {
     const resultCount = grid.querySelectorAll('.dict-card').length;
     const languageCode = currentLang.toUpperCase();
     const trimmedQuery = searchQuery.trim();
+    const filterSuffix = selectedCategory === 'all' ? '' : ` in ${selectedCategory}`;
     status.textContent = trimmedQuery
-        ? `${resultCount} ${resultCount === 1 ? 'sign' : 'signs'} found for “${trimmedQuery}”.`
-        : `${resultCount} ${languageCode} ${resultCount === 1 ? 'sign' : 'signs'}.`;
+        ? `${resultCount} ${resultCount === 1 ? 'sign' : 'signs'} found for “${trimmedQuery}”${filterSuffix}.`
+        : `${resultCount} ${languageCode} ${resultCount === 1 ? 'sign' : 'signs'}${filterSuffix}.`;
     emptyState.hidden = resultCount !== 0;
-}
-
-function loadBestImage(card, basePath, extensions, onUnavailable) {
-    const img = card.querySelector('img');
-    const placeholder = card.querySelector('.dict-img-placeholder');
-    let extensionIndex = 0;
-
-    img.onload = () => {
-        img.classList.add('loaded');
-        placeholder.classList.remove('loading');
-    };
-    img.onerror = tryNextExtension;
-
-    function tryNextExtension() {
-        if (extensionIndex >= extensions.length) {
-            card.remove();
-            onUnavailable?.();
-            return;
-        }
-        img.src = `${basePath}.${extensions[extensionIndex++]}`;
-    }
-    tryNextExtension();
 }
 
 function initializeLearnPage() {
     document.getElementById('flashcardToggle')?.addEventListener('change', window.toggleFlashcardMode);
     document.getElementById('tab-asl')?.addEventListener('click', () => window.switchLanguage('asl'));
     document.getElementById('tab-csl')?.addEventListener('click', () => window.switchLanguage('csl'));
+    const categoryFilter = document.getElementById('categoryFilter');
+    categoryFilter?.addEventListener('change', (event) => {
+        selectedCategory = event.currentTarget.value;
+        renderDictionary();
+    });
     const searchInput = document.getElementById('signSearch');
     searchInput?.addEventListener('input', (event) => {
         searchQuery = event.currentTarget.value;
@@ -178,7 +214,9 @@ function initializeLearnPage() {
         searchQuery = '';
         renderDictionary();
     });
-    loadVocabs();
+
+    const requestedLang = new URLSearchParams(window.location.search).get('lang');
+    window.switchLanguage(requestedLang === 'csl' ? 'csl' : 'asl');
 }
 
 if (document.readyState === 'loading') {
