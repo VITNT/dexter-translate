@@ -34,7 +34,7 @@ assert.equal(prediction[0].word, "Positive");
 assert.ok(prediction[0].confidence > 0.85);
 
 const releasedModel = JSON.parse(await readFile(
-  new URL("../../models/csl/static-landmark-v1.json", import.meta.url),
+  new URL("../../public/models/csl/static-landmark-v1.json", import.meta.url),
   "utf8"
 ));
 const releasedPrediction = predictStaticCsl(releasedModel, [hand]);

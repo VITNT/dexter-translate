@@ -1,41 +1,18 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const pages = [
-  { html: "index.html", script: "script.js" }
-];
+const headerMarkup = fs.readFileSync(new URL("../../components/Header.js", import.meta.url), "utf8");
+const translatorMarkup = fs.readFileSync(new URL("../../components/Translator.js", import.meta.url), "utf8");
+const learnMarkup = fs.readFileSync(new URL("../../components/Learn.js", import.meta.url), "utf8");
+const translatorHtml = `${headerMarkup}\n${translatorMarkup}`;
+const translatorScript = fs.readFileSync(new URL("../../client/translator.js", import.meta.url), "utf8");
+const translatorStyles = fs.readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+const learnScript = fs.readFileSync(new URL("../../client/learn.js", import.meta.url), "utf8");
 
-for (const page of pages) {
-  const html = fs.readFileSync(new URL(`../../${page.html}`, import.meta.url), "utf8");
-  const script = fs.readFileSync(new URL(`../../${page.script}`, import.meta.url), "utf8");
-
-  const ids = [...html.matchAll(/\bid=["']([^"']+)["']/g)].map(match => match[1]);
-  assert.equal(new Set(ids).size, ids.length, `${page.html} contains duplicate element IDs.`);
-
-  const handlers = [...html.matchAll(/\bonclick=["'](?:window\.)?([A-Za-z_$][\w$]*)/g)]
-    .map(match => match[1]);
-  for (const handler of handlers) {
-    const escaped = handler.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const declaration = new RegExp(`(?:window\\.${escaped}\\s*=|function\\s+${escaped}\\s*\\()`);
-    assert.match(script, declaration, `${page.html} calls missing handler ${handler} in ${page.script}.`);
-  }
-
-  const moduleSources = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/g)]
-    .map(match => match[1])
-    .filter(source => source.startsWith("./") || !source.includes("://"));
-  for (const source of moduleSources) {
-    const cleanSource = source.replace(/^\.\//, "");
-    assert.ok(
-      fs.existsSync(new URL(`../../${cleanSource}`, import.meta.url)),
-      `${page.html} references missing script ${source}.`
-    );
-  }
+for (const [name, markup] of [["translator", translatorHtml], ["learn", `${headerMarkup}\n${learnMarkup}`]]) {
+  const ids = [...markup.matchAll(/\bid=["']([^"']+)["']/g)].map(match => match[1]);
+  assert.equal(new Set(ids).size, ids.length, `${name} page contains duplicate element IDs.`);
 }
-
-const translatorHtml = fs.readFileSync(new URL("../../index.html", import.meta.url), "utf8");
-const translatorScript = fs.readFileSync(new URL("../../script.js", import.meta.url), "utf8");
-const translatorStyles = fs.readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-const learnScript = fs.readFileSync(new URL("../../learn.js", import.meta.url), "utf8");
 
 assert.match(translatorHtml, /id=["']captureCountdown["']/, "Translator must expose the pre-capture countdown.");
 assert.doesNotMatch(translatorHtml, /id=["']cslStageSelect["']/, "CSL must use one fixed recognition pipeline without a stage selector.");
@@ -144,6 +121,41 @@ assert.match(
 assert.match(translatorScript, /if \(!captureIsActive\)/, "Frame processing must be gated until capture starts.");
 assert.match(translatorStyles, /\.video-container\.is-dimmed::after/, "Inactive camera states must be visibly dimmed.");
 assert.match(
+  translatorStyles,
+  /@media screen and \(max-width: 800px\)[\s\S]*?\.dex-main\s*\{[\s\S]*?padding:\s*12px 8px calc\(48px \+ env\(safe-area-inset-bottom, 0px\)\);/,
+  "Mobile layout must leave safe-area-aware breathing room below the final card."
+);
+assert.match(
+  translatorScript,
+  /width:\s*\{ ideal: 1280 \}[\s\S]{0,160}height:\s*\{ ideal: 960 \}[\s\S]{0,160}aspectRatio:\s*\{ ideal: 4 \/ 3 \}/,
+  "Mobile camera capture must request a high-resolution 4:3 feed."
+);
+assert.match(
+  translatorScript,
+  /MOBILE_DETECTION_INTERVAL_MS\s*=\s*1000 \/ 15/,
+  "Higher-resolution mobile capture must retain the existing 15 FPS inference budget."
+);
+assert.match(
+  translatorScript,
+  /isMobileDevice && currentTimeMs - lastDetectionAt < MOBILE_DETECTION_INTERVAL_MS/,
+  "Mobile frame processing must be throttled independently from preview quality."
+);
+assert.match(
+  translatorStyles,
+  /\.capture-guide\s*\{[\s\S]*?background:\s*#f8f9fa;/,
+  "The camera guidance bar must use the light palette by default."
+);
+assert.match(
+  translatorStyles,
+  /\.capture-guide\s*\{[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*8px;[\s\S]*?box-shadow:\s*none;/,
+  "The camera guidance bar must share the flat depth and radius of the confidence panel."
+);
+assert.match(
+  translatorStyles,
+  /body\.dark-mode \.capture-guide\s*\{[\s\S]*?background:\s*#3c4043;/,
+  "The camera guidance bar must share the confidence panel's dark surface in dark mode."
+);
+assert.match(
   translatorScript,
   /const wordModeIsIdle\s*=\s*\(currentTrackingMode\s*===\s*["']asl_word["']\s*\|\|\s*currentTrackingMode\s*===\s*["']csl_word["']\)/,
   "ASL and CSL word modes must both dim the camera when no hands are visible."
@@ -154,13 +166,22 @@ assert.match(
   "Camera dimming must update immediately after each hand-presence check."
 );
 assert.match(translatorHtml, /id=["']speakTranslationBtn["']/, "Translator must expose a final-translation speech control.");
+assert.match(translatorHtml, /id=["']speechLanguageSelect["']/, "Translator must expose a speech-language selector.");
+assert.match(translatorHtml, /id=["']speechStatus["']/, "Translator must expose speech playback status.");
+assert.match(translatorHtml, /<option value=["']khmer["']>Khmer<\/option>/, "Speech selector must offer Khmer.");
+assert.match(translatorHtml, /<option value=["']english["']>English<\/option>/, "Speech selector must offer English.");
 assert.match(translatorHtml, /id=["']khmerTranslation["'][^>]+lang=["']km["']/, "Final translation must expose a Khmer result.");
 assert.match(translatorHtml, /id=["']englishTranslation["'][^>]+lang=["']en["']/, "Final translation must expose an English result.");
 assert.match(translatorScript, /new SpeechSynthesisUtterance\(speechItem\.text\)/, "Speech must use each final interpreted text.");
 assert.match(translatorScript, /lang:\s*["']km-KH["']/, "Khmer speech must use the Khmer locale.");
 assert.match(translatorScript, /lang:\s*["']en-US["']/, "English speech must use the English locale.");
+assert.match(translatorScript, /getSelectedSpeakableTranslation\(\)/, "Speech must use the selected translation language.");
+assert.doesNotMatch(translatorScript, /speakTranslationAtIndex/, "Speech must not automatically read both translations in sequence.");
+assert.match(translatorScript, /speechItem\.id === ["']khmer["']/, "Khmer speech must use generated audio rather than an optional system voice.");
+assert.match(translatorScript, /new Audio\(`\/api\/speech\?/, "Generated speech must play through the same-origin speech endpoint.");
 assert.match(translatorScript, /\{ speakable: hasBilingualTranslation \}/, "Only a complete bilingual interpretation may enable speech.");
-assert.match(translatorHtml, /onclick=["']backspaceWord\(\)["']/, "Translator must expose a backspace control.");
+assert.match(translatorHtml, /id=["']backspaceWordBtn["']/, "Translator must expose a backspace control.");
+assert.match(translatorScript, /backspaceWordBtn[^\n]+window\.backspaceWord/, "Backspace control must bind its handler.");
 assert.match(translatorScript, /window\.backspaceWord\s*=\s*function/, "Backspace control must have a callable handler.");
 assert.match(translatorScript, /sentenceBuilderDisplay\.lastChild\?\.remove\(\)/, "Backspace must remove the latest recognized item.");
 assert.match(
@@ -170,5 +191,12 @@ assert.match(
 );
 assert.match(learnScript, /card\.remove\(\)/, "Learn cards must disappear when every image candidate fails.");
 assert.doesNotMatch(learnScript, /Reference image unavailable/, "Learn must not display obsolete pictureless cards.");
+assert.match(learnMarkup, /id=["']signSearch["'][\s\S]*type=["']search["']/, "SignDex must expose a sign search field.");
+assert.match(learnMarkup, /id=["']searchResultsStatus["'][\s\S]*aria-live=["']polite["']/, "Sign search must announce result counts.");
+assert.match(learnMarkup, /id=["']dictionaryEmptyState["']/, "Sign search must expose an empty state.");
+assert.doesNotMatch(learnMarkup, /id=["']flashcardToggle["'][^>]+defaultChecked/, "Flashcard mode must be off by default.");
+assert.match(learnMarkup, /className=["']dictionary-grid["'] id=["']dictGrid["']/, "SignDex must initially render in normal image mode.");
+assert.match(learnScript, /normalizeSearchValue\(searchableText\)\.includes\(normalizedQuery\)/, "Sign search must filter normalized labels.");
+assert.match(learnScript, /event\.key !== 'Escape'/, "Escape must clear sign search.");
 
-console.log("UI contracts passed: unique IDs, callable click handlers, and local scripts are present.");
+console.log("UI contracts passed: unique IDs, Next.js controls, and client handlers are present.");

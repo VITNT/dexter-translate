@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 
-const assetRoot = new URL("../../models/csl/cadt-word-v1/", import.meta.url);
+const assetRoot = new URL("../../public/models/csl/cadt-word-v1/", import.meta.url);
 const model = JSON.parse(await readFile(new URL("model.json", assetRoot), "utf8"));
 const labels = JSON.parse(await readFile(new URL("labels.json", assetRoot), "utf8"));
 const metadata = JSON.parse(await readFile(new URL("metadata.json", assetRoot), "utf8"));

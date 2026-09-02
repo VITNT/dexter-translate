@@ -6,9 +6,9 @@ and the optional external-container alternative.
 
 Dexter has two runtime pieces:
 
-1. **Browser application** — ASL spelling and CSL/KSL recognition run in the
-   browser. Vercel also runs the small `/api/translate` and `/api/config`
-   JavaScript functions.
+1. **Next.js browser application** — ASL spelling and CSL/KSL recognition run
+   in the browser. Next.js also runs the small `/api/translate`, `/api/speech`,
+   and `/api/config` route handlers.
 2. **Optional ASL Words service** — WLASL300 video inference runs in the
    `asl_service` FastAPI application. It requires PyTorch, the official WLASL
    source, and a separately obtained checkpoint.
@@ -21,7 +21,7 @@ ASL Words is unavailable.
 
 - Git
 - Python 3.11 or 3.12
-- Node.js 20 or newer for `npx vercel`
+- Node.js 20.9 or newer
 - Internet access: TensorFlow.js, MediaPipe, fonts, and landmark models are
   loaded from their upstream CDNs
 - A webcam and a browser that supports `getUserMedia`
@@ -40,11 +40,30 @@ Edit `.env.local`:
 ```dotenv
 GEMINI_API_KEY=your_google_ai_studio_key
 GEMINI_MODEL=gemma-4-31b-it
+AUTH_SECRET=generate-at-least-32-random-characters
+BLOB_READ_WRITE_TOKEN=your-private-vercel-blob-token
+STRIPE_SECRET_KEY=sk_test_or_live_key
+STRIPE_WEBHOOK_SECRET=whsec_endpoint_secret
 WLASL_API_URL=http://127.0.0.1:8001
 ```
 
-`GEMINI_API_KEY` enables **Interpret Context**. Never place it in browser code
-or commit `.env.local`. `WLASL_API_URL` is public configuration, not a secret.
+`GEMINI_API_KEY` enables **Interpret Context**. `AUTH_SECRET` signs secure
+login cookies, while `BLOB_READ_WRITE_TOKEN` stores password-hashed accounts in
+private Vercel Blob. Never place these values in browser code or commit
+`.env.local`. `WLASL_API_URL` is public configuration, not a secret.
+
+`STRIPE_SECRET_KEY` creates hosted recurring Checkout and customer-portal
+sessions. Register `https://YOUR_DOMAIN/api/billing/webhook` as a Stripe
+webhook endpoint for `checkout.session.completed`,
+`customer.subscription.created`, `customer.subscription.updated`, and
+`customer.subscription.deleted`, then store its signing secret as
+`STRIPE_WEBHOOK_SECRET`. Dexter defines the $4.99/month Pro and $300/year B2B
+prices in server-side Checkout requests, so separate Stripe Price IDs are not
+required.
+
+Dexter's public landing page is `/`, and the translator at `/translate` works
+without an account. Account creation at `/signup` and login at `/login` are
+optional. The dictionary is also public so every visitor can explore it.
 
 ## 2. Install the optional ASL Words service
 
@@ -102,26 +121,19 @@ Open <http://127.0.0.1:8001/health>. Continue only when it returns
 
 ## 3. Run the complete site locally
 
-In a second terminal, run the Vercel development server from the repository
+In a second terminal, install dependencies and run Next.js from the repository
 root:
 
 ```powershell
-npx.cmd vercel@latest dev --listen 8000
+npm.cmd install
+npm.cmd run dev
 ```
 
-The first run may ask you to sign in and link or create a Vercel project. Open
-<http://localhost:8000/index.html>.
+On macOS/Linux the equivalent commands are `npm install` and `npm run dev`.
+Open <http://localhost:3000/>.
 
-For browser recognition without the two JavaScript API functions, a basic
-static server is enough:
-
-```powershell
-py -m http.server 8000
-```
-
-With the basic server, ASL spelling and CSL/KSL work, and ASL Words still uses
-`http://127.0.0.1:8001`; **Interpret Context** does not work because
-`/api/translate` requires the Vercel development server.
+The site now depends on Next.js routing and server-rendered pages, so a basic
+static file server is not supported.
 
 ## 4. Package the ASL Words backend
 
@@ -168,11 +180,8 @@ Blob with its credential in Google Secret Manager.
 ## 6. Verify
 
 ```powershell
-node --check script.js
-Get-ChildItem src\pipeline\*.test.mjs | ForEach-Object {
-  node $_.FullName
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
+npm.cmd test
+npm.cmd run build
 .venv\Scripts\python.exe -m unittest discover -s asl_service\tests -p "test_*.py"
 ```
 
@@ -186,12 +195,13 @@ Manual checks:
 
 ## Files that must stay in Git
 
-- `index.html`, `learn.html`, `styles.css`, and browser scripts
-- `api/*.js`
+- `app/**`, `components/**`, `client/**`, and `app/globals.css`
+- `app/api/**`, `server/api/**`, and `lib/**`
 - `src/pipeline/*.mjs` runtime modules
-- `asl-model.json`, `asl-model.weights.bin`, and `asl-labels.json`
-- `models/csl/**` and `models/asl/wlasl/manifest.json`
-- `images/**`, `logo.png`, `vercel.json`, and `.vercelignore`
+- `public/asl-model.json`, `public/asl-model.weights.bin`, and `public/asl-labels.json`
+- `public/models/csl/**` and `public/models/asl/wlasl/manifest.json`
+- `public/images/**`, `public/logo.png`, `package.json`, `package-lock.json`,
+  `next.config.js`, `vercel.json`, and `.vercelignore`
 - `asl_service` source, Python requirements, root Dockerfile, and model-install README
 
 Files intentionally excluded from Git include secrets, virtual environments,

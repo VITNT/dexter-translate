@@ -5,6 +5,8 @@
 
 # Node/Vercel local state
 node_modules/
+.next/
+out/
 .vercel/
 .netlify/
 
@@ -32,6 +34,7 @@ asl_service/models/*
 
 # Local recordings and temporary output
 recordings/
+outputs/
 tmp/
 temp/
 

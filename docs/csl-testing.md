@@ -15,7 +15,7 @@ Idle trials evaluate false activations; they do not retrain or add an idle
 class to the frozen CADT model.
 
 Change only one setting between test rounds. CSL tuning is centralized in
-`models/csl/cadt-word-v1/metadata.json`:
+`public/models/csl/cadt-word-v1/metadata.json`:
 
 - `confidenceThreshold`: minimum averaged probability; higher rejects more.
 - `confidenceMargin`: required gap between first and second place; higher is
@@ -32,8 +32,8 @@ attempt.
 
 ## Learn-page reference assets
 
-The five GIF references and chart are under `images/csl/`. Static reference
-photos are under `images/csl/reference/`. Only the approved `form_aa`,
+The five GIF references and chart are under `public/images/csl/`. Static
+reference photos are under `public/images/csl/reference/`. Only the approved `form_aa`,
 `form_ab`, `form_ac`, `form_u`, `form_v`, and `form_x` photos are included.
 Classes without an approved image are omitted from the Learn gallery. Deleting
 an individual reference file also removes its card when the page loads. Tell

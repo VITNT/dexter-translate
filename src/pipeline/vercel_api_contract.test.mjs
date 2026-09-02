@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const configHandler = require("../../api/config.js");
-const translateHandler = require("../../api/translate.js");
+const configHandler = require("../../server/api/config.js");
+const translateHandler = require("../../server/api/translate.js");
+const speechHandler = require("../../server/api/speech.js");
 const { parseBilingualTranslation } = translateHandler;
+const { splitSpeechText } = speechHandler;
 
 function mockResponse() {
   return {
@@ -83,6 +85,40 @@ assert.deepEqual(bilingualResponse.payload.translation, {
 });
 assert.match(capturedGeminiRequest.contents[0].parts[0].text, /Khmer and English/);
 assert.match(capturedGeminiRequest.contents[0].parts[0].text, /CSL\/KSL gloss/);
+
+globalThis.fetch = previousFetch;
+
+let capturedSpeechUrl;
+globalThis.fetch = async (url) => {
+  capturedSpeechUrl = String(url);
+  return {
+    ok: true,
+    status: 200,
+    async arrayBuffer() {
+      return Uint8Array.from([73, 68, 51]).buffer;
+    }
+  };
+};
+
+const speechResponse = {
+  ...mockResponse(),
+  body: null,
+  send(body) {
+    this.body = body;
+    return this;
+  }
+};
+await speechHandler({
+  method: "GET",
+  query: { language: "km-KH", text: "សួស្តី" }
+}, speechResponse);
+assert.equal(speechResponse.statusCode, 200);
+assert.equal(speechResponse.headers["Content-Type"], "audio/mpeg");
+assert.equal(speechResponse.headers["Cache-Control"], "no-store");
+assert.ok(Buffer.isBuffer(speechResponse.body));
+assert.match(capturedSpeechUrl, /translate_tts/);
+assert.match(capturedSpeechUrl, /tl=km/);
+assert.deepEqual(splitSpeechText("a".repeat(400)).map(chunk => chunk.length), [180, 180, 40]);
 
 globalThis.fetch = previousFetch;
 

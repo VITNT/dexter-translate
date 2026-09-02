@@ -1,10 +1,10 @@
 import { HandLandmarker, PoseLandmarker, FilesetResolver }
-    from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+    from "@mediapipe/tasks-vision";
 import {
     normalizeRgbBytes,
     uniformSampleIndices,
     validateWlaslManifest
-} from "./src/pipeline/wlasl_video_pipeline.mjs";
+} from "../src/pipeline/wlasl_video_pipeline.mjs";
 import {
     buildHandSignature,
     copyHandSignature,
@@ -12,35 +12,35 @@ import {
     normalizeHandShapeSignature,
     updatePauseProgress,
     updateReleaseProgress
-} from "./src/pipeline/signing_release.mjs";
+} from "../src/pipeline/signing_release.mjs";
 import {
     predictStaticCsl,
     validateStaticCslModel
-} from "./src/pipeline/csl_static_classifier.mjs";
+} from "../src/pipeline/csl_static_classifier.mjs";
 import {
     buildCadtCslHandFrame,
     interpolateCadtCslFrame,
     prepareCadtCslSequence
-} from "./src/pipeline/csl_cadt_word_pipeline.mjs";
+} from "../src/pipeline/csl_cadt_word_pipeline.mjs";
 import {
     getAslDynamicLetterIntent,
     hasEmergingAslLetterMotion
-} from "./src/pipeline/asl_letter_motion.mjs";
+} from "../src/pipeline/asl_letter_motion.mjs";
 import {
     classifyClosedThumbLetter,
     hasCrossedIndexMiddle
-} from "./src/pipeline/asl_static_geometry.mjs";
+} from "../src/pipeline/asl_static_geometry.mjs";
 import {
     hasVisibleHandLandmarks,
     shouldSubmitAslWordClip
-} from "./src/pipeline/word_hand_presence.mjs";
-import { hasSufficientTopTwoMargin } from "./src/pipeline/prediction_rejection.mjs";
+} from "../src/pipeline/word_hand_presence.mjs";
+import { hasSufficientTopTwoMargin } from "../src/pipeline/prediction_rejection.mjs";
 import {
     averageProbabilityVectors,
     findStaticAgreement,
     resolveCslRuntimeConfig,
     selectShiftedWindows
-} from "./src/pipeline/csl_runtime_strategy.mjs";
+} from "../src/pipeline/csl_runtime_strategy.mjs";
 
 // skip drawing skeletons on phones — they can't handle it
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -55,6 +55,7 @@ let pauseToggleBtn = document.getElementById('pauseBtn');
 let activeCameraFacing = "user";
 let isDetecting = false;
 let currentTrackingMode = "asl_letter";
+let lastDetectionAt = 0;
 
 // UI elements we update constantly during detection
 let rawExtractionDisplay = document.getElementById('liveOutput');
@@ -66,7 +67,10 @@ let translationStatusDisplay = document.getElementById('translationStatus');
 let bilingualTranslationDisplay = document.getElementById('bilingualTranslation');
 let khmerTranslationDisplay = document.getElementById('khmerTranslation');
 let englishTranslationDisplay = document.getElementById('englishTranslation');
+let speechLanguageSelect = document.getElementById('speechLanguageSelect');
 let speakTranslationButton = document.getElementById('speakTranslationBtn');
+let speechStatusDisplay = document.getElementById('speechStatus');
+let proSpeechEnabled = document.getElementById('speechControls')?.dataset.proEnabled === 'true';
 let captureGuide = document.getElementById('captureGuide');
 let captureStateLabel = document.getElementById('captureStateLabel');
 let captureStateDetail = document.getElementById('captureStateDetail');
@@ -139,6 +143,9 @@ const WLASL_RECORDING_FPS = 25;
 const WLASL_CLIP_WINDOW_MS = 2560;
 const WLASL_BACKEND_CONFIDENCE = 0.55;
 const MIN_CAPTURE_HAND_CONFIDENCE = 0.65;
+// Keep phone inference at the existing 15 FPS budget even though the visible
+// camera feed requests more pixels and a smoother preview.
+const MOBILE_DETECTION_INTERVAL_MS = 1000 / 15;
 const CSL_CAPTURE_SAMPLE_INTERVAL_MS = 1000 / 30;
 const CSL_HAND_LOSS_GRACE_MS = 350;
 const STATIC_HOLD_DURATION_MS = 260;
@@ -458,16 +465,6 @@ function evaluateFingerPose(handLandmarks) {
     return estimation.gestures.reduce((best, candidate) => best.score > candidate.score ? best : candidate);
 }
 
-// remember dark mode between visits
-if (localStorage.getItem('darkMode') === 'true') {
-    document.body.classList.add('dark-mode');
-}
-
-document.getElementById('darkModeToggle').addEventListener('click', () => {
-    document.body.classList.toggle('dark-mode');
-    localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
-});
-
 // mode picker dropdown
 
 window.toggleDropdown = function () {
@@ -538,18 +535,6 @@ window.addEventListener('click', function (event) {
         }
     }
 
-    // Header "Learn" dropdown toggle for mobile
-    const navDropdown = event.target.closest('.dex-nav-dropdown');
-    const isClickInsideDropdown = event.target.closest('.dex-nav-dropdown-content');
-
-    if (navDropdown && !isClickInsideDropdown) {
-        // Toggle the dropdown if clicking the 'Learn' item itself
-        event.preventDefault();
-        navDropdown.classList.toggle('show');
-    } else if (!isClickInsideDropdown) {
-        // Close all dropdowns if clicking outside
-        document.querySelectorAll('.dex-nav-dropdown.show').forEach(d => d.classList.remove('show'));
-    }
 });
 
 
@@ -622,9 +607,17 @@ window.startCam = async function () {
 
         if (cameraStream) window.stopCam();
 
-        // phones get a lighter 640x480 feed, desktops get full HD
+        // Request a sharper 4:3 phone feed while keeping recognition work
+        // throttled separately below. `ideal` lets lower-end cameras fall back
+        // gracefully instead of failing the camera request.
         const cameraConfig = isMobileDevice
-            ? { facingMode: activeCameraFacing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }
+            ? {
+                facingMode: activeCameraFacing,
+                width: { ideal: 1280 },
+                height: { ideal: 960 },
+                aspectRatio: { ideal: 4 / 3 },
+                frameRate: { ideal: 24, max: 30 }
+            }
             : { facingMode: activeCameraFacing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
 
         cameraStream = await navigator.mediaDevices.getUserMedia({ video: cameraConfig });
@@ -647,6 +640,7 @@ window.startCam = async function () {
         }
 
         letterSessionCountdownComplete = false;
+        lastDetectionAt = 0;
         isDetecting = true;
         prepareForNextCapture();
         processVideoFrames();
@@ -687,6 +681,7 @@ window.resumeCam = async function () {
     if (currentTrackingMode === "asl_word" || currentTrackingMode === "asl_letter") {
         await checkWlaslBackend();
     }
+    lastDetectionAt = 0;
     isDetecting = true;
     prepareForNextCapture();
     processVideoFrames();
@@ -714,6 +709,7 @@ window.stopCam = function () {
         webcamVideo.load();
     }
     isDetecting = false;
+    lastDetectionAt = 0;
 
     cameraToggleBtn.textContent = "Start Camera";
     cameraToggleBtn.onclick = window.startCam;
@@ -952,24 +948,53 @@ window.translateSentence = async function () {
 }
 
 const speechSynthesisSupported = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+const speechAudioSupported = "Audio" in window;
 let speakableTranslations = [];
 let activeTranslationUtterance = null;
+let activeTranslationAudio = null;
+
+function getSelectedSpeakableTranslation() {
+    const selectedLanguage = speechLanguageSelect?.value;
+    return speakableTranslations.find(item => item.id === selectedLanguage) || speakableTranslations[0] || null;
+}
 
 function updateSpeakTranslationButton(isSpeaking = false) {
     if (!speakTranslationButton) return;
 
-    const canSpeak = speechSynthesisSupported && speakableTranslations.length > 0;
+    const speechItem = getSelectedSpeakableTranslation();
+    const canSpeak = proSpeechEnabled
+        && (speechSynthesisSupported || speechAudioSupported)
+        && Boolean(speechItem);
+    const speechLabel = speechItem ? `${speechItem.label} translation` : "translation";
+    if (speechLanguageSelect) speechLanguageSelect.disabled = !canSpeak;
     speakTranslationButton.disabled = !canSpeak;
     speakTranslationButton.classList.toggle("is-speaking", isSpeaking);
-    speakTranslationButton.setAttribute("aria-label", isSpeaking ? "Stop speaking" : "Speak translation");
-    speakTranslationButton.title = speechSynthesisSupported
-        ? (isSpeaking ? "Stop speaking" : "Speak translation")
-        : "Text to speech is not supported by this browser";
+    speakTranslationButton.setAttribute(
+        "aria-label",
+        isSpeaking ? `Stop speaking ${speechLabel}` : `Speak ${speechLabel}`
+    );
+    speakTranslationButton.title = !proSpeechEnabled
+        ? "Text to speech is available on Dexter Pro"
+        : canSpeak
+            ? (isSpeaking ? `Stop speaking ${speechLabel}` : `Speak ${speechLabel}`)
+            : "Text to speech is not supported by this browser";
+}
+
+function setSpeechStatus(message = "", isError = false) {
+    if (!speechStatusDisplay) return;
+    speechStatusDisplay.innerText = message;
+    speechStatusDisplay.classList.toggle("is-error", isError);
 }
 
 function cancelTranslationSpeech() {
     activeTranslationUtterance = null;
     if (speechSynthesisSupported) window.speechSynthesis.cancel();
+    if (activeTranslationAudio) {
+        activeTranslationAudio.pause();
+        activeTranslationAudio.removeAttribute("src");
+        activeTranslationAudio = null;
+    }
+    setSpeechStatus();
     updateSpeakTranslationButton(false);
 }
 
@@ -982,10 +1007,14 @@ function setFinalTranslation(text, { speakable = false } = {}) {
 
     speakableTranslations = speakable && isBilingual
         ? [
-            { text: text.khmer.trim(), lang: "km-KH" },
-            { text: text.english.trim(), lang: "en-US" }
+            { id: "khmer", label: "Khmer", text: text.khmer.trim(), lang: "km-KH" },
+            { id: "english", label: "English", text: text.english.trim(), lang: "en-US" }
         ].filter(item => item.text)
         : [];
+
+    if (speechLanguageSelect && !speakableTranslations.some(item => item.id === speechLanguageSelect.value)) {
+        speechLanguageSelect.value = speakableTranslations[0]?.id || "khmer";
+    }
 
     if (translationStatusDisplay) {
         translationStatusDisplay.innerText = isBilingual ? "" : String(text || "");
@@ -996,14 +1025,7 @@ function setFinalTranslation(text, { speakable = false } = {}) {
     updateSpeakTranslationButton(false);
 }
 
-function speakTranslationAtIndex(index) {
-    const speechItem = speakableTranslations[index];
-    if (!speechItem) {
-        activeTranslationUtterance = null;
-        updateSpeakTranslationButton(false);
-        return;
-    }
-
+function speakSelectedTranslation(speechItem) {
     const utterance = new SpeechSynthesisUtterance(speechItem.text);
     utterance.lang = speechItem.lang;
     utterance.onstart = () => {
@@ -1012,7 +1034,7 @@ function speakTranslationAtIndex(index) {
     utterance.onend = () => {
         if (activeTranslationUtterance !== utterance) return;
         activeTranslationUtterance = null;
-        speakTranslationAtIndex(index + 1);
+        updateSpeakTranslationButton(false);
     };
     utterance.onerror = utterance.onend;
 
@@ -1021,16 +1043,59 @@ function speakTranslationAtIndex(index) {
     window.speechSynthesis.speak(utterance);
 }
 
-window.speakTranslation = function () {
-    if (!speechSynthesisSupported || speakableTranslations.length === 0) return;
+function playGeneratedTranslation(speechItem) {
+    const params = new URLSearchParams({
+        language: speechItem.lang,
+        text: speechItem.text
+    });
+    const audio = new Audio(`/api/speech?${params.toString()}`);
+    let finished = false;
 
-    if (activeTranslationUtterance) {
+    const finish = (errorMessage = "") => {
+        if (finished) return;
+        finished = true;
+        if (activeTranslationAudio === audio) activeTranslationAudio = null;
+        updateSpeakTranslationButton(false);
+        setSpeechStatus(errorMessage, Boolean(errorMessage));
+    };
+
+    audio.preload = "auto";
+    audio.onplaying = () => setSpeechStatus();
+    audio.onended = () => finish();
+    audio.onerror = () => finish(`${speechItem.label} audio is unavailable. Please try again.`);
+
+    activeTranslationAudio = audio;
+    setSpeechStatus(`Preparing ${speechItem.label} audio…`);
+    updateSpeakTranslationButton(true);
+    const playPromise = audio.play();
+    if (playPromise?.catch) {
+        playPromise.catch(() => finish(`${speechItem.label} audio could not play. Please try again.`));
+    }
+}
+
+window.speakTranslation = function () {
+    if (!proSpeechEnabled) {
+        setSpeechStatus("Upgrade to Pro for text to speech.", true);
+        return;
+    }
+    const speechItem = getSelectedSpeakableTranslation();
+    if (!speechItem) return;
+
+    if (activeTranslationUtterance || activeTranslationAudio) {
         cancelTranslationSpeech();
         return;
     }
 
-    speakTranslationAtIndex(0);
+    if (speechItem.id === "khmer" || !speechSynthesisSupported) {
+        if (speechAudioSupported) playGeneratedTranslation(speechItem);
+        else setSpeechStatus("Text to speech is not supported by this browser.", true);
+        return;
+    }
+
+    speakSelectedTranslation(speechItem);
 }
+
+speechLanguageSelect?.addEventListener("change", cancelTranslationSpeech);
 
 updateSpeakTranslationButton(false);
 
@@ -1611,10 +1676,18 @@ async function processVideoFrames() {
 
     if (webcamVideo.currentTime !== previousVideoTime) {
         previousVideoTime = webcamVideo.currentTime;
-        resizeCanvas();
         if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
             drawWlaslRecordingFrame();
         }
+
+        // A higher-resolution preview should not increase phone inference
+        // frequency. This retains the former 15 FPS recognition workload.
+        if (isMobileDevice && currentTimeMs - lastDetectionAt < MOBILE_DETECTION_INTERVAL_MS) {
+            window.requestAnimationFrame(processVideoFrames);
+            return;
+        }
+        lastDetectionAt = currentTimeMs;
+        resizeCanvas();
 
         if (!handTracker) {
             window.requestAnimationFrame(processVideoFrames);
@@ -2624,3 +2697,18 @@ function resetInactivity() {
     setCaptureActive(false);
     showWaitingForInputGuide();
 }
+
+// Next.js renders the controls without inline event attributes. Bind the same
+// global handlers after this client-only module has initialized.
+cameraToggleBtn.onclick = window.startCam;
+document.getElementById('modeDropdownButton')?.addEventListener('click', window.toggleDropdown);
+document.querySelectorAll('[data-mode-id]').forEach(item => {
+    item.addEventListener('click', () => {
+        window.selectMode(item.dataset.modeId, item.dataset.modeLabel, item);
+    });
+});
+document.getElementById('flipCameraBtn')?.addEventListener('click', window.flipCam);
+document.getElementById('backspaceWordBtn')?.addEventListener('click', window.backspaceWord);
+document.getElementById('clearWordBtn')?.addEventListener('click', window.clearWord);
+document.getElementById('translateSentenceBtn')?.addEventListener('click', window.translateSentence);
+document.getElementById('speakTranslationBtn')?.addEventListener('click', window.speakTranslation);

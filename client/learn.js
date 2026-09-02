@@ -1,4 +1,5 @@
 let currentLang = 'asl';
+let searchQuery = '';
 const aslVocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(word => ({ word }));
 let cslVocab = ['កម្ពុជា', 'ត្រូវ', 'ឆ្ងាញ់', 'អរគុណ', 'ខុស'].map(word => ({
     word,
@@ -46,6 +47,11 @@ window.switchLanguage = function(lang) {
     const languageCode = isAsl ? 'ASL' : 'CSL';
     document.getElementById('activeLanguageCode').innerText = languageCode;
     document.title = `SignDex | ${languageCode}`;
+    const searchInput = document.getElementById('signSearch');
+    if (searchInput) {
+        searchInput.placeholder = `Search ${languageCode} signs`;
+        searchInput.setAttribute('aria-label', `Search ${languageCode} signs`);
+    }
 
     // secretly update the url so sharing the link works, without reloading the page
     const newUrl = new URL(window.location);
@@ -65,9 +71,10 @@ function renderDictionary() {
     const grid = document.getElementById('dictGrid');
     grid.innerHTML = '';
     const vocab = currentLang === 'asl' ? aslVocab : cslVocab;
+    const normalizedQuery = normalizeSearchValue(searchQuery);
     document.querySelector('.dict-reference-chart')?.remove();
 
-    if (currentLang === 'csl') {
+    if (currentLang === 'csl' && !normalizedQuery) {
         const chartCard = document.createElement('div');
         chartCard.className = 'dict-reference-chart';
         chartCard.innerHTML = '<img src="images/csl/csl-reference-chart.png" alt="CSL reference chart">';
@@ -78,6 +85,8 @@ function renderDictionary() {
         const word = entry.word;
         const cleanWord = word.trim().toLowerCase();
         if (['idle', 'none', '', 'still'].includes(cleanWord)) continue;
+        const searchableText = `${word} ${entry.form || ''}`;
+        if (normalizedQuery && !normalizeSearchValue(searchableText).includes(normalizedQuery)) continue;
         const isDynamicAsl = currentLang === 'asl' && ['j', 'z'].includes(cleanWord);
         const extensions = entry.extensions || (isDynamicAsl ? ['gif', 'png', 'jpg'] : ['png', 'jpg', 'gif']);
         const basePath = entry.basePath ?? `images/${currentLang}/${cleanWord}`;
@@ -107,11 +116,32 @@ function renderDictionary() {
             </div>`;
         grid.appendChild(card);
 
-        loadBestImage(card, basePath, extensions);
+        loadBestImage(card, basePath, extensions, updateSearchResultsStatus);
     }
+
+    updateSearchResultsStatus();
 }
 
-function loadBestImage(card, basePath, extensions) {
+function normalizeSearchValue(value) {
+    return String(value).normalize('NFKC').trim().toLocaleLowerCase();
+}
+
+function updateSearchResultsStatus() {
+    const grid = document.getElementById('dictGrid');
+    const status = document.getElementById('searchResultsStatus');
+    const emptyState = document.getElementById('dictionaryEmptyState');
+    if (!grid || !status || !emptyState) return;
+
+    const resultCount = grid.querySelectorAll('.dict-card').length;
+    const languageCode = currentLang.toUpperCase();
+    const trimmedQuery = searchQuery.trim();
+    status.textContent = trimmedQuery
+        ? `${resultCount} ${resultCount === 1 ? 'sign' : 'signs'} found for “${trimmedQuery}”.`
+        : `${resultCount} ${languageCode} ${resultCount === 1 ? 'sign' : 'signs'}.`;
+    emptyState.hidden = resultCount !== 0;
+}
+
+function loadBestImage(card, basePath, extensions, onUnavailable) {
     const img = card.querySelector('img');
     const placeholder = card.querySelector('.dict-img-placeholder');
     let extensionIndex = 0;
@@ -125,6 +155,7 @@ function loadBestImage(card, basePath, extensions) {
     function tryNextExtension() {
         if (extensionIndex >= extensions.length) {
             card.remove();
+            onUnavailable?.();
             return;
         }
         img.src = `${basePath}.${extensions[extensionIndex++]}`;
@@ -132,15 +163,26 @@ function loadBestImage(card, basePath, extensions) {
     tryNextExtension();
 }
 
-document.addEventListener('DOMContentLoaded', loadVocabs);
+function initializeLearnPage() {
+    document.getElementById('flashcardToggle')?.addEventListener('change', window.toggleFlashcardMode);
+    document.getElementById('tab-asl')?.addEventListener('click', () => window.switchLanguage('asl'));
+    document.getElementById('tab-csl')?.addEventListener('click', () => window.switchLanguage('csl'));
+    const searchInput = document.getElementById('signSearch');
+    searchInput?.addEventListener('input', (event) => {
+        searchQuery = event.currentTarget.value;
+        renderDictionary();
+    });
+    searchInput?.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || !event.currentTarget.value) return;
+        event.currentTarget.value = '';
+        searchQuery = '';
+        renderDictionary();
+    });
+    loadVocabs();
+}
 
-window.addEventListener('click', function(event) {
-    const navDropdown = event.target.closest('.dex-nav-dropdown');
-    const isClickInsideDropdown = event.target.closest('.dex-nav-dropdown-content');
-    if (navDropdown && !isClickInsideDropdown) {
-        event.preventDefault();
-        navDropdown.classList.toggle('show');
-    } else if (!isClickInsideDropdown) {
-        document.querySelectorAll('.dex-nav-dropdown.show').forEach(dropdown => dropdown.classList.remove('show'));
-    }
-});
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeLearnPage, { once: true });
+} else {
+    initializeLearnPage();
+}

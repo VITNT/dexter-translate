@@ -56,7 +56,7 @@ npx vercel@latest blob put third_party/WLASL/code/I3D/preprocess/wlasl_class_lis
 ```
 
 Keep the generated `BLOB_READ_WRITE_TOKEN` private. It is needed by Cloud Run,
-not by browser code.
+and by Dexter's server-only Vercel account storage, never by browser code.
 
 ## 2. Put the Blob credential in Google Secret Manager
 
@@ -130,25 +130,43 @@ The response should report `"status":"ready"`, both assets as found, and
 
 ## 4. Connect and deploy Vercel
 
-Use **Framework Preset: Other** and the repository root as Vercel's Root
-Directory. Set these variables for Production and Preview:
+Import the repository as a **Next.js** project and keep the repository root as
+Vercel's Root Directory. Vercel should detect the framework from `package.json`;
+`vercel.json` pins `framework` to `nextjs` as part of the deploy contract. Keep
+the standard detected commands and directories—do not override Build Command,
+Output Directory, Install Command, or Development Command. Set these variables
+for Production and Preview:
 
 ```text
 GEMINI_API_KEY=<your Google AI Studio key>
 GEMINI_MODEL=gemma-4-31b-it
+AUTH_SECRET=<at least 32 random characters>
+BLOB_READ_WRITE_TOKEN=<private Blob store token>
+STRIPE_SECRET_KEY=<Stripe test or live secret key>
+STRIPE_WEBHOOK_SECRET=<Stripe endpoint signing secret>
 WLASL_API_URL=https://YOUR_CLOUD_RUN_URL
 ```
 
 `WLASL_API_URL` is public configuration and must not have a trailing slash.
-Do not add `BLOB_READ_WRITE_TOKEN` to browser-visible code or Vercel; only the
-Cloud Run runtime needs it.
+All other values above are server-only and must never use a `NEXT_PUBLIC_`
+prefix. Register `https://YOUR_PROJECT.vercel.app/api/billing/webhook` in
+Stripe for Checkout completion and subscription create/update/delete events.
 
 Deploy and verify:
 
 ```bash
+npm install
+npm test
+npm run build
 npx vercel@latest deploy --prod
 curl https://YOUR_PROJECT.vercel.app/api/config
 ```
+
+The local test suite validates the Vercel/Next.js contract before deployment:
+the Next.js framework preset, standard package scripts, route-level function
+durations, excluded Cloud Run sources, and this guide's project settings. A
+successful `next build` additionally verifies that all pages and route handlers
+compile for production.
 
 `/api/config` must return the Cloud Run URL:
 

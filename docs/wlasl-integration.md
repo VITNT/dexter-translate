@@ -11,8 +11,8 @@ The app now keeps three independent recognition contracts:
 
 | Mode | Input | Asset location |
 | --- | --- | --- |
-| ASL spelling | 30 x 63 hand landmarks | project-root `asl-model*` files |
-| ASL words / WLASL | sampled square RGB clip | `models/asl/wlasl/` |
+| ASL spelling | 30 x 63 hand landmarks | `public/asl-model*` files |
+| ASL words / WLASL | sampled square RGB clip | `public/models/asl/wlasl/` |
 | CSL words | CSL landmark graph/crops | existing `csl*` files |
 
 No WLASL code imports or changes the CSL feature pipeline.
@@ -32,8 +32,8 @@ large WLASL2000 download that may not run reliably on mobile hardware.
    step, not a file rename; unsupported PyTorch operations may require an ONNX
    or TensorFlow intermediate and output-parity testing.
 4. Put `model.json`, all generated weight shards, and `labels.json` under
-   `models/asl/wlasl/`. Labels must be an array in classifier output order.
-5. Edit `models/asl/wlasl/manifest.json` to match the exported checkpoint and
+   `public/models/asl/wlasl/`. Labels must be an array in classifier output order.
+5. Edit `public/models/asl/wlasl/manifest.json` to match the exported checkpoint and
    set `enabled` to `true`.
 6. Serve the repository over HTTP, choose **ASL Words**, and test complete signs
    centered in the camera for the configured clip duration.
@@ -52,4 +52,3 @@ large WLASL2000 download that may not run reliably on mobile hardware.
 
 The checked-in manifest stays disabled because this repository does not contain
 a WLASL checkpoint or its authoritative label-index file.
-

@@ -1,5 +1,8 @@
 .git/
 .github/
+.env
+.env.*
+!.env.example
 .venv/
 node_modules/
 third_party/
@@ -9,6 +12,7 @@ data/external/
 docs/
 tools/
 recordings/
+outputs/
 src/pipeline/*.test.mjs
 *.log
 *.pyc

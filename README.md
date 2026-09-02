@@ -15,18 +15,17 @@ CSL model or preprocessing.
 
 ## Run Locally
 
-For the complete local site, including the Vercel API routes, copy
-`.env.example` to `.env.local` and run:
+Install the Next.js dependencies, copy `.env.example` to `.env.local`, and run:
 
 ```bash
-npx vercel@latest dev --listen 8000
+npm install
+npm run dev
 ```
 
-Then open `http://localhost:8000/index.html`. A plain
-`python3 -m http.server 8000` also runs browser recognition, but not the
-server-side **Interpret Context** route. The complete Windows, macOS/Linux,
-Docker, and Vercel instructions are in [SETUP.md](SETUP.md). On Windows systems
-that block PowerShell's `npx.ps1`, use `npx.cmd` as shown there.
+Then open `http://localhost:3000/`. The Next.js server includes the
+`/api/config`, `/api/translate`, and `/api/speech` routes; a plain static file
+server is no longer sufficient. The complete Windows, macOS/Linux, Docker, and
+Vercel instructions are in [SETUP.md](SETUP.md).
 
 ## Deploy
 
@@ -77,7 +76,8 @@ The public name, asset folders, documentation, tests, and safe internal adapter
 names use CSL. A few serialized upstream identifiers retain their original
 names so the converted checkpoint remains traceable to its source.
 
-The model bundle lives in `models/csl/cadt-word-v1/`. A released 42-class
+The model bundle lives in `public/models/csl/cadt-word-v1/` and is served from
+`/models/csl/cadt-word-v1/`. A released 42-class
 static LandmarkNet remains a final fallback if the temporal bundle cannot be
 loaded. Six approved reference images appear in the CSL dictionary; removed
 images render as unavailable rather than being requested. Source and license
@@ -95,7 +95,7 @@ overlapping 30-frame predictions, probability averaging, and conservative
 same-label confirmation from the static model. Test each sign repeatedly and
 record correct, wrong, and rejected outcomes.
 The adjustable CSL values are kept together in
-`models/csl/cadt-word-v1/metadata.json`: `confidenceThreshold`,
+`public/models/csl/cadt-word-v1/metadata.json`: `confidenceThreshold`,
 `confidenceMargin`, capture/window sizes and offsets, and the static-agreement
 settings. Static agreement never inserts a different word; it can only support
 the exact label already predicted by the temporal model.
@@ -107,8 +107,8 @@ The linked upstream repository does not publish the raw 22,000-image or
 honestly retrain or independently validate the CADT temporal model. See
 [`docs/csl-external-resources.md`](docs/csl-external-resources.md).
 
-WLASL has a separate RGB-video bundle at `models/asl/wlasl/`; see its README
-and manifest for the browser model contract.
+WLASL has a separate RGB-video bundle at `public/models/asl/wlasl/`; see its
+README and manifest for the browser model contract.
 The end-to-end acquisition, conversion, and validation checklist is in
 `docs/wlasl-integration.md`.
 Optional legacy ASL word files can still be installed as
@@ -118,15 +118,9 @@ model is installed instead of accidentally using the CSL model bundle.
 
 ## Verification
 
-Run the deterministic feature tests with:
+Run the deterministic feature and migration tests with:
 
 ```bash
-node src/pipeline/csl_cadt_word_pipeline.test.mjs
-node src/pipeline/csl_cadt_model_asset.test.mjs
-node src/pipeline/csl_runtime_strategy.test.mjs
-node src/pipeline/csl_static_classifier.test.mjs
-node src/pipeline/prediction_rejection.test.mjs
-node src/pipeline/split_deployment_contract.test.mjs
-node src/pipeline/ui_contract.test.mjs
-node src/pipeline/wlasl_video_pipeline.test.mjs
+npm test
+npm run build
 ```

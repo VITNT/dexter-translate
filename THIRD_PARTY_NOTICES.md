@@ -6,9 +6,9 @@ subject to its own license and terms.
 
 ## CADT Cambodian Sign Language models and remaining references
 
-The CSL temporal weights in `models/csl/cadt-word-v1/`, the static LandmarkNet
-weights in `models/csl/static-landmark-v1.json`, and the remaining reference
-images in `images/csl/reference/` are derived from the upstream project titled
+The CSL temporal weights in `public/models/csl/cadt-word-v1/`, the static LandmarkNet
+weights in `public/models/csl/static-landmark-v1.json`, and the remaining reference
+images in `public/images/csl/reference/` are derived from the upstream project titled
 **Khmer Sign Language Translation System**:
 
 <https://github.com/Phal-Sovandy/Khmer-Sign-Language-Translation-System>
