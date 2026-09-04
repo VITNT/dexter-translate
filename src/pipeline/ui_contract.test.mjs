@@ -188,6 +188,7 @@ assert.match(translatorScript, /sentenceBuilderDisplay\.lastChild\?\.remove\(\)/
 assert.match(learnScript, /card\.remove\(\)/, "Learn cards must disappear when every image candidate fails.");
 assert.doesNotMatch(learnScript, /Reference image unavailable/, "Learn must not display obsolete pictureless cards.");
 assert.match(learnScript, /item\.type === 'video'/, "SignDex must render motion-based sign references as video.");
+assert.match(learnScript, /\? 'Word'/, "Motion-based sign cards must be labeled as words instead of videos.");
 assert.match(dictionarySource, /aslAlphabet/, "The SignDex catalog must include the full ASL fingerspelling alphabet.");
 assert.match(dictionarySource, /const cslWords/, "The SignDex catalog must retain the original CSL words.");
 assert.match(dictionarySource, /images\/csl\/reference/, "The original CSL reference photos must remain available.");

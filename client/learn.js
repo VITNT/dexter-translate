@@ -89,7 +89,7 @@ function renderDictionary() {
 
         const stepCount = entry.media.filter((item) => item.type === 'image').length;
         const typeLabel = entry.media.some((item) => item.type === 'video')
-            ? 'Video'
+            ? 'Word'
             : stepCount > 1
                 ? `${stepCount} steps`
                 : entry.category;
