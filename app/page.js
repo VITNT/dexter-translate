@@ -54,28 +54,23 @@ export default async function HomePage() {
 
           <div className="landing-demo" aria-label="Preview of Dexter sign translation">
             <div className="landing-demo-top">
-              <span className="landing-live-dot" /> Live translation
-              <span className="landing-demo-language">ASL spelling</span>
+              <span className="landing-live-dot" /> Product demo
+              <span className="landing-demo-language">Dexter</span>
             </div>
             <div className="landing-camera">
-              <div className="landing-hand" aria-hidden="true">
-                <span className="hand-palm" />
-                <span className="hand-finger finger-one" />
-                <span className="hand-finger finger-two" />
-                <span className="hand-finger finger-three" />
-                <span className="hand-finger finger-four" />
-                <span className="hand-thumb" />
-                <i className="hand-point point-a" /><i className="hand-point point-b" />
-                <i className="hand-point point-c" /><i className="hand-point point-d" />
-              </div>
-              <div className="landing-focus-corner corner-one" />
-              <div className="landing-focus-corner corner-two" />
-              <span className="landing-confidence">98% confidence</span>
-            </div>
-            <div className="landing-demo-result">
-              <div><span>Detected sign</span><strong>Hello</strong></div>
-              <div lang="km"><span>Khmer</span><strong>សួស្តី</strong></div>
-              <button type="button" tabIndex="-1" aria-hidden="true">▶</button>
+              <video
+                className="landing-demo-video"
+                autoPlay
+                loop
+                muted
+                playsInline
+                controls
+                preload="metadata"
+                aria-label="Demo of Dexter sign translation"
+              >
+                <source src="/videos/landing-demo.mp4" type="video/mp4" />
+                Your browser does not support embedded video.
+              </video>
             </div>
           </div>
         </section>

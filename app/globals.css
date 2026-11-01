@@ -1887,19 +1887,9 @@ body.dark-mode .dropdown-item.active {
     border: 1px solid rgba(255, 255, 255, .7);
     border-radius: 26px;
     background: rgba(255, 255, 255, .84);
-    box-shadow: 0 35px 80px rgba(39, 74, 120, .18), 0 5px 20px rgba(42, 77, 115, .08);
-    backdrop-filter: blur(14px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .08);
 }
 
-.landing-demo::before {
-    content: "";
-    position: absolute;
-    z-index: -1;
-    inset: -35px;
-    border-radius: 50%;
-    background: #dcecff;
-    filter: blur(40px);
-}
 
 .landing-demo-top {
     display: flex;
@@ -1929,130 +1919,15 @@ body.dark-mode .dropdown-item.active {
     position: relative;
     height: 390px;
     overflow: hidden;
-    background:
-        radial-gradient(circle at 35% 34%, rgba(116, 177, 251, .24), transparent 24%),
-        radial-gradient(circle at 72% 66%, rgba(49, 116, 205, .24), transparent 28%),
-        linear-gradient(145deg, #15273d, #0b1422 68%);
+    background: #0b1422;
 }
 
-.landing-camera::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image: linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px);
-    background-size: 32px 32px;
-}
-
-.landing-hand {
-    position: absolute;
-    z-index: 2;
-    top: 58%;
-    left: 50%;
-    width: 150px;
-    height: 170px;
-    transform: translate(-50%, -50%) rotate(-8deg);
-    filter: drop-shadow(0 15px 30px rgba(0, 0, 0, .3));
-}
-
-.hand-palm {
-    position: absolute;
-    bottom: 0;
-    left: 38px;
-    width: 84px;
-    height: 106px;
-    border: 2px solid #8cc1ff;
-    border-radius: 43% 48% 38% 44%;
-    background: rgba(66, 137, 224, .15);
-}
-
-.hand-finger,
-.hand-thumb {
-    position: absolute;
-    width: 22px;
-    border: 2px solid #8cc1ff;
-    border-bottom: 0;
-    border-radius: 16px 16px 6px 6px;
-    background: rgba(66, 137, 224, .12);
-}
-
-.finger-one { top: 29px; left: 40px; height: 80px; transform: rotate(-5deg); }
-.finger-two { top: 4px; left: 66px; height: 103px; }
-.finger-three { top: 15px; left: 92px; height: 93px; transform: rotate(4deg); }
-.finger-four { top: 45px; left: 116px; height: 72px; transform: rotate(9deg); }
-.hand-thumb { top: 82px; left: 16px; height: 68px; transform: rotate(-54deg); }
-
-.landing-hand i {
-    position: absolute;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #b8d8ff;
-    box-shadow: 0 0 12px #61a8ff;
-}
-
-.point-a { top: 29px; left: 47px; }
-.point-b { top: 3px; left: 73px; }
-.point-c { top: 15px; left: 99px; }
-.point-d { top: 44px; left: 123px; }
-
-.landing-focus-corner {
-    position: absolute;
-    z-index: 3;
-    width: 58px;
-    height: 58px;
-}
-
-.corner-one { top: 26px; left: 26px; border-top: 2px solid rgba(155, 202, 255, .72); border-left: 2px solid rgba(155, 202, 255, .72); }
-.corner-two { right: 26px; bottom: 26px; border-right: 2px solid rgba(155, 202, 255, .72); border-bottom: 2px solid rgba(155, 202, 255, .72); }
-
-.landing-confidence {
-    position: absolute;
-    z-index: 3;
-    right: 16px;
-    bottom: 16px;
-    padding: 7px 11px;
-    border: 1px solid rgba(255, 255, 255, .1);
-    border-radius: 999px;
-    background: rgba(7, 17, 31, .7);
-    color: #b9d8ff;
-    font-size: 10px;
-    font-weight: 700;
-    backdrop-filter: blur(8px);
-}
-
-.landing-demo-result {
-    display: grid;
-    grid-template-columns: 1fr 1fr auto;
-    gap: 14px;
-    align-items: center;
-    padding: 18px;
-}
-
-.landing-demo-result > div {
-    display: grid;
-    gap: 4px;
-}
-
-.landing-demo-result span {
-    color: #8892a2;
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: .09em;
-    text-transform: uppercase;
-}
-
-.landing-demo-result strong {
-    color: #253248;
-    font-size: 19px;
-}
-
-.landing-demo-result button {
-    width: 42px;
-    height: 42px;
-    border: 0;
-    border-radius: 50%;
-    background: #e8f0fe;
-    color: #1a73e8;
+.landing-demo-video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #0b1422;
 }
 
 .landing-feature-strip {
