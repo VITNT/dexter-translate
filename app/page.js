@@ -44,7 +44,6 @@ export default async function HomePage() {
             </p>
             <div className="landing-actions">
               <a className="landing-primary" href={primaryHref}>{primaryLabel}</a>
-              <a className="landing-secondary" href="/pricing">View pricing</a>
             </div>
             <div className="landing-trust">
               <span><b>Browser-first</b> recognition</span>
@@ -116,7 +115,7 @@ export default async function HomePage() {
       <footer className="landing-footer">
         <a className="dex-logo dex-logo-link" href="/"><img src="/logo.png" alt="" width="36" height="36" /><span className="dex-blue">Dexter</span></a>
         <p>Sign language translation and learning for more inclusive conversations.</p>
-        <nav aria-label="Footer navigation"><a href="/translate">Translate</a><a href="/pricing">Pricing</a><a href="/learn?lang=asl">Learn ASL</a><a href="/learn?lang=csl">Learn CSL</a></nav>
+        <nav aria-label="Footer navigation"><a href="/translate">Translate</a><a href="/learn?lang=asl">Learn ASL</a><a href="/learn?lang=csl">Learn CSL</a></nav>
       </footer>
     </>
   );

@@ -1,19 +1,5 @@
 import "./globals.css";
-import { Battambang, Manrope } from "next/font/google";
 import { siteDescription, siteName, siteUrl } from "../lib/site";
-
-const manrope = Manrope({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-manrope"
-});
-
-const battambang = Battambang({
-  weight: ["400", "700"],
-  subsets: ["khmer"],
-  display: "swap",
-  variable: "--font-battambang"
-});
 
 export const metadata = {
   metadataBase: siteUrl,
@@ -53,7 +39,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className={`${manrope.variable} ${battambang.variable}`}>{children}</body>
+      <body>{children}</body>
     </html>
   );
 }

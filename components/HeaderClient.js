@@ -51,12 +51,6 @@ export default function HeaderClient({ activePage, user }) {
         >
           Translate
         </a>
-        <a
-          href="/pricing"
-          className={`dex-nav-item${activePage === "pricing" ? " active" : ""}`}
-        >
-          Pricing
-        </a>
         <div ref={learnMenu} className={`dex-nav-dropdown${learnOpen ? " show" : ""}`}>
           <button
             className={`dex-nav-item dex-nav-dropdown-trigger${activePage === "learn" ? " active" : ""}`}

@@ -9,7 +9,6 @@ const portal = fs.readFileSync(new URL("app/api/billing/portal/route.js", root),
 const webhook = fs.readFileSync(new URL("app/api/billing/webhook/route.js", root), "utf8");
 const billing = fs.readFileSync(new URL("lib/billing.js", root), "utf8");
 const auth = fs.readFileSync(new URL("lib/auth.js", root), "utf8");
-const pricing = fs.readFileSync(new URL("app/pricing/page.js", root), "utf8");
 
 assert.ok(packageJson.dependencies.stripe, "Stripe must be a production dependency.");
 assert.equal(planCatalog.pro.price, 499);
@@ -27,9 +26,5 @@ assert.match(webhook, /await request\.text\(\)/);
 assert.match(webhook, /customer\.subscription\.deleted/);
 assert.match(billing, /syncSubscription/);
 assert.match(auth, /ifMatch:\s*record\.etag/);
-assert.match(pricing, /\$4\.99/);
-assert.match(pricing, /\$300/);
-assert.match(pricing, /Up to 50 user accounts/);
-assert.match(pricing, /roadmap benefits/);
 
-console.log("Billing contracts passed: exact prices, subscription Checkout, verified webhooks, portal, and honest roadmap copy.");
+console.log("Billing contracts passed: exact prices, subscription Checkout, verified webhooks, portal.");

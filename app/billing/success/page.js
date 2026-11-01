@@ -33,7 +33,7 @@ export default async function BillingSuccessPage({ searchParams }) {
   }
 
   if (checkout?.client_reference_id && checkout.client_reference_id !== account.id) {
-    redirect("/pricing");
+    redirect("/account");
   }
   if (checkout) {
     try {

@@ -8,7 +8,7 @@ export default function BillingButton({ plan, signedIn, mode = "checkout", child
 
   async function begin() {
     if (!signedIn) {
-      window.location.assign(`/signup?next=${encodeURIComponent("/pricing")}`);
+      window.location.assign(`/signup?next=${encodeURIComponent("/account")}`);
       return;
     }
 

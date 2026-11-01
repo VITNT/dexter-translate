@@ -16,11 +16,6 @@ export default function sitemap() {
       url: new URL("/learn?lang=csl", siteUrl).toString(),
       changeFrequency: "monthly",
       priority: 0.8
-    },
-    {
-      url: new URL("/pricing", siteUrl).toString(),
-      changeFrequency: "monthly",
-      priority: 0.7
     }
   ];
 }

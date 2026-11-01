@@ -34,10 +34,8 @@ export default async function AccountPage() {
             </div>
             <span className={`account-plan-badge plan-${plan}`}>{planName}</span>
           </div>
-          {account.billing?.stripeCustomerId ? (
+          {account.billing?.stripeCustomerId && (
             <BillingButton signedIn mode="portal" className="account-billing-button">Manage billing</BillingButton>
-          ) : (
-            <a className="account-billing-link" href="/pricing">Compare plans</a>
           )}
           <div className="account-divider" />
           <div className="account-security-copy">

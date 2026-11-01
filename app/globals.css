@@ -1,3 +1,10 @@
+@import url("https://fonts.googleapis.com/css2?family=Battambang:wght@400;700&family=Manrope:wght@200..800&display=swap");
+
+:root {
+    --font-manrope: "Manrope";
+    --font-battambang: "Battambang";
+}
+
 body {
     --dex-font-sans: var(--font-manrope), var(--font-battambang), sans-serif;
     background-color: #f8f9fa;
