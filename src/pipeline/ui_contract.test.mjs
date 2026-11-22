@@ -153,7 +153,7 @@ assert.match(
 );
 assert.match(
   translatorStyles,
-  /body\.dark-mode \.capture-guide\s*\{[\s\S]*?background:\s*#3c4043;/,
+  /body\.dark-mode \.capture-guide\s*\{[\s\S]*?background:\s*var\(--dex-dark-raised\);/,
   "The camera guidance bar must share the confidence panel's dark surface in dark mode."
 );
 assert.match(

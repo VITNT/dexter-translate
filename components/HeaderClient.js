@@ -38,7 +38,7 @@ export default function HeaderClient({ activePage, user }) {
   return (
     <header className="dex-header">
       <a className="dex-logo dex-logo-link" href="/" aria-label="Dexter home">
-        <img src="/logo.png" alt="" width="48" height="48" />
+        <img src="/logo.png" alt="" width="64" height="64" />
         <span className="dex-blue">Dexter</span>
       </a>
       <nav className="dex-nav" aria-label="Primary navigation">
