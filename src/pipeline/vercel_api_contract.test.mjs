@@ -56,7 +56,9 @@ assert.equal(parseBilingualTranslation('{"khmer":"ខ្ញុំទៅហាង
 let capturedGeminiRequest;
 process.env.GEMINI_API_KEY = "test-key";
 const previousFetch = globalThis.fetch;
-globalThis.fetch = async (_url, options) => {
+let capturedGeminiUrl;
+globalThis.fetch = async (url, options) => {
+  capturedGeminiUrl = String(url);
   capturedGeminiRequest = JSON.parse(options.body);
   return {
     ok: true,
@@ -85,6 +87,25 @@ assert.deepEqual(bilingualResponse.payload.translation, {
 });
 assert.match(capturedGeminiRequest.contents[0].parts[0].text, /Khmer and English/);
 assert.match(capturedGeminiRequest.contents[0].parts[0].text, /CSL\/KSL gloss/);
+
+assert.match(capturedGeminiUrl, /\/models\/gemma-4-31b-it:generateContent$/, "The default model must be Gemma 4 31B, with the key kept out of the URL.");
+assert.deepEqual(capturedGeminiRequest.generationConfig.thinkingConfig, { thinkingLevel: "MINIMAL" });
+assert.ok(capturedGeminiRequest.generationConfig.maxOutputTokens >= 1024, "Khmer and English output must not be truncated at 150 tokens.");
+
+for (const [status, message] of [[429, /quota/], [503, /temporarily unavailable/], [403, /configured correctly/]]) {
+  globalThis.fetch = async () => ({ ok: false, status, json: async () => ({ error: { message: "Private upstream details" } }) });
+  const response = mockResponse();
+  await translateHandler({ method: "POST", body: { aslString: "HELLO" } }, response);
+  assert.equal(response.statusCode, status === 429 ? 429 : 502);
+  assert.match(response.payload.error, message);
+  assert.equal(response.payload.details, undefined);
+}
+
+globalThis.fetch = async () => { throw new DOMException("Timed out", "TimeoutError"); };
+const timeoutResponse = mockResponse();
+await translateHandler({ method: "POST", body: { aslString: "HELLO" } }, timeoutResponse);
+assert.equal(timeoutResponse.statusCode, 504);
+assert.match(timeoutResponse.payload.error, /too long/);
 
 globalThis.fetch = previousFetch;
 

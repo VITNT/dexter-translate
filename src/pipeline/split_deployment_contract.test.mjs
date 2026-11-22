@@ -29,7 +29,7 @@ assert.doesNotMatch(deployGuide, /Framework Preset:\s*Other/i, "The obsolete sta
 assert.match(deployGuide, /do not override Build Command,[\s\S]*Output Directory,[\s\S]*Install Command/i);
 for (const route of ["config", "translate", "speech"]) {
   const routeSource = fs.readFileSync(new URL(`app/api/${route}/route.js`, root), "utf8");
-  assert.match(routeSource, /export const maxDuration = 10/);
+  assert.match(routeSource, new RegExp(`export const maxDuration = ${route === "translate" ? 30 : 10}`));
 }
 assert.match(vercelignore, /^asl_service\/$/m);
 assert.match(vercelignore, /^Dockerfile$/m);
