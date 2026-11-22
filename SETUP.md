@@ -42,8 +42,6 @@ GEMINI_API_KEY=your_google_ai_studio_key
 GEMINI_MODEL=gemma-4-31b-it
 AUTH_SECRET=generate-at-least-32-random-characters
 BLOB_READ_WRITE_TOKEN=your-private-vercel-blob-token
-STRIPE_SECRET_KEY=sk_test_or_live_key
-STRIPE_WEBHOOK_SECRET=whsec_endpoint_secret
 WLASL_API_URL=http://127.0.0.1:8001
 ```
 
@@ -51,15 +49,6 @@ WLASL_API_URL=http://127.0.0.1:8001
 login cookies, while `BLOB_READ_WRITE_TOKEN` stores password-hashed accounts in
 private Vercel Blob. Never place these values in browser code or commit
 `.env.local`. `WLASL_API_URL` is public configuration, not a secret.
-
-`STRIPE_SECRET_KEY` creates hosted recurring Checkout and customer-portal
-sessions. Register `https://YOUR_DOMAIN/api/billing/webhook` as a Stripe
-webhook endpoint for `checkout.session.completed`,
-`customer.subscription.created`, `customer.subscription.updated`, and
-`customer.subscription.deleted`, then store its signing secret as
-`STRIPE_WEBHOOK_SECRET`. Dexter defines the $4.99/month Pro and $300/year B2B
-prices in server-side Checkout requests, so separate Stripe Price IDs are not
-required.
 
 Dexter's public landing page is `/`, and the translator at `/translate` works
 without an account. Account creation at `/signup` and login at `/login` are

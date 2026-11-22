@@ -36,8 +36,7 @@ for (const route of ["config", "translate"]) {
 }
 
 const speechRoute = fs.readFileSync(new URL("app/api/speech/route.js", root), "utf8");
-assert.match(speechRoute, /hasProAccess/);
-assert.match(speechRoute, /Text to speech is available on Dexter Pro/);
+assert.doesNotMatch(speechRoute, /getSession|hasProAccess|Dexter Pro/, "Text to speech is free and needs no account.");
 
 for (const pathname of ["app/login/page.js", "app/signup/page.js", "app/account/page.js", "app/translate/page.js"]) {
   assert.equal(fs.existsSync(new URL(pathname, root)), true, `${pathname} must exist.`);

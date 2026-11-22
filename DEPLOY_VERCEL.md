@@ -142,15 +142,12 @@ GEMINI_API_KEY=<your Google AI Studio key>
 GEMINI_MODEL=gemma-4-31b-it
 AUTH_SECRET=<at least 32 random characters>
 BLOB_READ_WRITE_TOKEN=<private Blob store token>
-STRIPE_SECRET_KEY=<Stripe test or live secret key>
-STRIPE_WEBHOOK_SECRET=<Stripe endpoint signing secret>
 WLASL_API_URL=https://YOUR_CLOUD_RUN_URL
 ```
 
 `WLASL_API_URL` is public configuration and must not have a trailing slash.
 All other values above are server-only and must never use a `NEXT_PUBLIC_`
-prefix. Register `https://YOUR_PROJECT.vercel.app/api/billing/webhook` in
-Stripe for Checkout completion and subscription create/update/delete events.
+prefix.
 
 Deploy and verify:
 
