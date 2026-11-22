@@ -21,11 +21,6 @@ export default function Learn({ initialLanguage }) {
                   <span id="activeLanguageCode">{isCsl ? "CSL" : "ASL"}</span>
                 </div>
               </div>
-              <p className="dictionary-intro">
-                {isCsl
-                  ? "Browse the original CSL visual references."
-                  : "Browse English labels with verified visual references."}
-              </p>
               <label className="flashcard-switch-wrapper">
                 <div className="custom-switch">
                   <input type="checkbox" id="flashcardToggle" />

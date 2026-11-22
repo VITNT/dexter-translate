@@ -63,6 +63,18 @@ Because WLASL has no idle class, motion, confidence, and top-two-margin gates
 reject no-sign windows instead of forcing an arbitrary vocabulary word.
 Pausing or resuming the camera clears all cached recognition frames.
 
+### Local ASL common-word geometry
+
+ASL Words also includes a small deterministic landmark recognizer for
+**Hello**, **OK**, and **I love you**. It runs before WLASL and remains available
+when the optional word-model service is offline. The rules use palm-width
+normalized distances, 3D joint angles, a short hold window, and face/shoulder
+relative motion rather than fixed camera pixels. Hello requires an open palm to
+move outward from the temple; OK requires a thumb/index pinch with the other
+three fingers extended; I love you requires the index, pinky, and thumb extended
+with the middle and ring fingers curled. A detected static word must be released
+or changed before it can be accepted again.
+
 ## CADT CSL model
 
 CSL Words uses the released CADT checkpoint converted deterministically from

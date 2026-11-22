@@ -1,10 +1,6 @@
 import Header from "./Header";
-import { getSessionAccount } from "../lib/auth";
-import { hasProAccess } from "../lib/plans";
 
 export default async function Translator() {
-  const account = await getSessionAccount();
-  const canUseSpeech = hasProAccess(account);
 
   return (
     <>
@@ -97,7 +93,7 @@ export default async function Translator() {
             </div>
             <div className="dex-box-footer">
               <div className="dex-controls-left">
-                <button id="cameraBtn" className="dex-btn-primary">
+                <button id="cameraBtn" className="dex-btn-primary" disabled>
                   Start Camera
                 </button>
                 <button
@@ -191,7 +187,7 @@ export default async function Translator() {
               </div>
             </div>
             <div className="dex-box-footer output-footer">
-              <button id="translateSentenceBtn" className="dex-btn-translate">
+              <button id="translateSentenceBtn" className="dex-btn-translate" disabled>
                 Interpret Context
               </button>
               <div
@@ -199,10 +195,8 @@ export default async function Translator() {
                 className="speech-controls"
                 role="group"
                 aria-label="Text to speech controls"
-                data-pro-enabled={canUseSpeech ? "true" : "false"}
               >
                 <span id="speechStatus" className="speech-status" role="status" aria-live="polite" />
-                {!canUseSpeech && <a className="speech-pro-link" href="/pricing">Pro</a>}
                 <select
                   id="speechLanguageSelect"
                   className="speech-language-select"

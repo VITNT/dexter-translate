@@ -31,6 +31,10 @@ import {
     hasCrossedIndexMiddle
 } from "../src/pipeline/asl_static_geometry.mjs";
 import {
+    appendCommonAslFrame,
+    detectCommonAslWord
+} from "../src/pipeline/asl_common_words.mjs";
+import {
     hasVisibleHandLandmarks,
     shouldSubmitAslWordClip
 } from "../src/pipeline/word_hand_presence.mjs";
@@ -41,6 +45,15 @@ import {
     resolveCslRuntimeConfig,
     selectShiftedWindows
 } from "../src/pipeline/csl_runtime_strategy.mjs";
+
+// A fresh instance is bound on every mount, including client-side navigation.
+export function mountTranslator() {
+const listeners = new AbortController();
+let disposed = false;
+let animationFrame = null;
+let startingCamera = false;
+let modeGeneration = 0;
+let translationInFlight = false;
 
 // skip drawing skeletons on phones — they can't handle it
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -70,7 +83,6 @@ let englishTranslationDisplay = document.getElementById('englishTranslation');
 let speechLanguageSelect = document.getElementById('speechLanguageSelect');
 let speakTranslationButton = document.getElementById('speakTranslationBtn');
 let speechStatusDisplay = document.getElementById('speechStatus');
-let proSpeechEnabled = document.getElementById('speechControls')?.dataset.proEnabled === 'true';
 let captureGuide = document.getElementById('captureGuide');
 let captureStateLabel = document.getElementById('captureStateLabel');
 let captureStateDetail = document.getElementById('captureStateDetail');
@@ -127,6 +139,7 @@ let cslHandLossResetComplete = false;
 let lastCslTopGuessDiagnostic = null;
 let motionTimestampBuffer = [];
 let wlaslFrameBuffer = [];
+let commonAslWordFrames = [];
 let lastWlaslInferenceAt = 0;
 let accumulatedWord = "";
 let previousVideoTime = -1;
@@ -186,6 +199,8 @@ let acceptedStaticSignature = [];
 let staticReleaseStartedAt = null;
 let wordAwaitingRelease = false;
 let acceptedWordLabel = "";
+let acceptedWordRequiresShapeChange = false;
+let acceptedWordSignature = [];
 let dynamicLetterAwaitingRelease = false;
 let acceptedDynamicLetter = "";
 let acceptedDynamicSignature = [];
@@ -257,7 +272,6 @@ const POSE_CONNECTIONS = [
 ];
 
 async function initializeMediaPipe() {
-    await loadRuntimeConfig();
     try {
         await tf.setBackend('webgl');
         tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
@@ -269,22 +283,26 @@ async function initializeMediaPipe() {
 
     visionFileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
 
+    const aslLoading = loadAslModel();
     handTracker = await HandLandmarker.createFromOptions(visionFileset, {
         baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`, delegate: "GPU" },
         runningMode: "VIDEO",
-        // A mode can be selected while the asynchronous model setup is running.
-        // Read the current mode here instead of always reverting to one hand.
-        numHands: currentTrackingMode === "asl_letter" ? 1 : 2,
+        // Configure word modes only after their required models are loaded.
+        numHands: 1,
         minHandDetectionConfidence: MIN_CAPTURE_HAND_CONFIDENCE,
         minHandPresenceConfidence: MIN_CAPTURE_HAND_CONFIDENCE,
         minTrackingConfidence: 0.5
     });
 
+    await aslLoading;
+}
+
+async function loadAslModel() {
     try {
         const aslResponse = await fetch('./asl-labels.json');
         aslVocab = await aslResponse.json();
         aslModel = await tf.loadLayersModel('./asl-model.json');
-        aslModelMetadata = await loadOptionalJson('./asl-model_metadata.json');
+        aslModelMetadata = null; // The shipped spelling bundle has no metadata file.
         validateModelBundle(aslModel, aslVocab, 'ASL');
 
         activeAIModel = aslModel;
@@ -295,8 +313,11 @@ async function initializeMediaPipe() {
         console.error("Failed to load the ASL model. Check the filenames and paths.", error);
     }
 
+}
+
+async function loadAslWordModels() {
     try {
-        const manifestResponse = await fetch('./models/asl/wlasl/manifest.json');
+        const manifestResponse = await fetch('./models/asl/wlasl/manifest.json', { signal: AbortSignal.timeout(3000) });
         if (manifestResponse.ok) {
             const manifest = await manifestResponse.json();
             if (manifest.enabled) {
@@ -317,7 +338,7 @@ async function initializeMediaPipe() {
 
     if (!wlaslModel) {
         try {
-            const aslWordResponse = await fetch('./asl_word_labels.json');
+            const aslWordResponse = await fetch('./asl_word_labels.json', { signal: AbortSignal.timeout(3000) });
             if (aslWordResponse.ok) {
                 aslWordVocab = await aslWordResponse.json();
                 aslWordModel = await tf.loadLayersModel('./asl_word_model.json');
@@ -330,6 +351,9 @@ async function initializeMediaPipe() {
         }
     }
 
+}
+
+async function loadCslModels() {
     try {
         const [labelsResponse, metadataResponse] = await Promise.all([
             fetch('./models/csl/cadt-word-v1/labels.json'),
@@ -354,12 +378,54 @@ async function initializeMediaPipe() {
         console.log("Static CSL fallback is not installed.", error);
     }
 
-    if (currentTrackingMode === "csl_word") {
-        activeAIModel = cslModel;
-        activeVocabulary = cslVocab;
-        activeModelMetadata = cslModelMetadata;
-    }
+    if (!cslModel && !cslStaticModel) throw new Error("CSL recognition could not load. Please try again.");
+}
 
+const modeLoads = new Map();
+function loadModeModels(mode) {
+    if (!modeLoads.has(mode)) {
+        const loading = mode === "csl_word" ? loadCslModels()
+            : mode === "asl_word" ? Promise.all([loadAslWordModels(), ensurePoseTracker()])
+            : Promise.resolve();
+        modeLoads.set(mode, loading.catch(error => {
+            modeLoads.delete(mode);
+            throw error;
+        }));
+    }
+    return modeLoads.get(mode);
+}
+
+let trackerHandCount = 1;
+let modeConfiguration = Promise.resolve();
+function configureSelectedMode() {
+    modeConfiguration = modeConfiguration.catch(() => {}).then(async () => {
+        await ensureModelsReady();
+        let mode;
+        do {
+            mode = currentTrackingMode;
+            await loadModeModels(mode);
+            if (disposed) return;
+        } while (mode !== currentTrackingMode);
+        const count = mode === "asl_letter" ? 1 : 2;
+        if (trackerHandCount !== count) {
+            await handTracker.setOptions({ numHands: count });
+            trackerHandCount = count;
+        }
+        activeAIModel = mode === "csl_word" ? cslModel : mode === "asl_word" ? aslWordModel : aslModel;
+        activeVocabulary = mode === "csl_word" ? cslVocab : mode === "asl_word" ? aslWordVocab : aslVocab;
+        activeModelMetadata = mode === "csl_word" ? cslModelMetadata : mode === "asl_word" ? aslWordModelMetadata : aslModelMetadata;
+        if (mode === "asl_word") void refreshWordBackend();
+    });
+    return modeConfiguration;
+}
+
+async function refreshWordBackend() {
+    await loadRuntimeConfig();
+    await checkWlaslBackend();
+    if (!disposed && currentTrackingMode === "asl_word") {
+        rawExtractionDisplay.innerText = getAslWordRuntimeLabel();
+        if (isDetecting && wlaslBackendReady) startWlaslCaptureLoop();
+    }
 }
 
 async function ensurePoseTracker() {
@@ -373,14 +439,20 @@ async function ensurePoseTracker() {
 }
 
 function currentModeNeedsPoseTracker() {
-    if (currentTrackingMode !== "asl_word") return false;
-    if (activeModelMetadata?.adapter === "wlasl_rgb_video") return false;
-    return activeAIModel?.inputs?.[0]?.shape?.[2] === 225;
+    // Face and shoulder anchors make the local Hello motion rule independent
+    // of camera position. Legacy 225-value word models need the same pose data.
+    return currentTrackingMode === "asl_word";
+}
+
+function getAslWordRuntimeLabel() {
+    return (wlaslBackendReady || aslWordModel)
+        ? "[ASL geometry + WLASL]"
+        : "[ASL geometry: Hello, OK, I love you]";
 }
 
 async function loadRuntimeConfig() {
     try {
-        const response = await fetch('/api/config');
+        const response = await fetch('/api/config', { signal: AbortSignal.timeout(3000) });
         if (!response.ok) return;
         const config = await response.json();
         const configuredUrl = String(config?.wlaslApiUrl || '').trim().replace(/\/+$/, '');
@@ -399,7 +471,7 @@ async function checkWlaslBackend() {
         return false;
     }
     try {
-        const response = await fetch(`${wlaslApiUrl}/health`);
+        const response = await fetch(`${wlaslApiUrl}/health`, { signal: AbortSignal.timeout(3000) });
         const status = response.ok ? await response.json() : null;
         wlaslBackendReady = status?.status === 'ready' && status?.classes === 300;
     } catch (error) {
@@ -439,12 +511,19 @@ function validateWlaslModelBundle(model, labels, config) {
     }
 }
 
-// track initialization state so we don't start the camera too early
-let isModelsReady = false;
-let modelInitPromise = initializeMediaPipe().then(() => {
-    isModelsReady = true;
-    console.log("System ready for detection.");
-});
+// Retry failed initialization instead of retaining a rejected startup promise.
+let modelInitPromise;
+function ensureModelsReady() {
+    if (!modelInitPromise) {
+        modelInitPromise = initializeMediaPipe().catch(error => {
+            handTracker?.close();
+            handTracker = null;
+            modelInitPromise = null;
+            throw error;
+        });
+    }
+    return modelInitPromise;
+}
 
 function buildSign(name, noCurls, halfCurls, fullCurls) {
     const sign = new fp.GestureDescription(name);
@@ -488,41 +567,32 @@ window.selectMode = async function (modeId, modeLabel, element) {
     clearHandCache();
     stopWlaslCaptureLoop();
 
-    const guessLabelUI = document.getElementById('guessLabel');
-    const rawOutputUI = document.getElementById('liveOutput');
-    const outputLangUI = document.getElementById('outputLangLabel');
-
-    if (currentTrackingMode === "csl_word") {
-        guessLabelUI.innerText = "Mode: CSL Words";
-        rawOutputUI.innerText = "[CSL]";
-        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
-        activeAIModel = cslModel;
-        activeVocabulary = cslVocab;
-        activeModelMetadata = cslModelMetadata;
-        if (handTracker) await handTracker.setOptions({ numHands: 2 });
-
-    } else if (currentTrackingMode === "asl_word") {
-        await checkWlaslBackend();
-        guessLabelUI.innerText = `Mode: ${modeLabel}`;
-        rawOutputUI.innerText = (wlaslBackendReady || aslWordModel)
-            ? `[ASL WLASL300]`
-            : "ASL Words backend is waking or unavailable";
-        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
-        activeAIModel = aslWordModel;
-        activeVocabulary = aslWordVocab;
-        activeModelMetadata = aslWordModelMetadata;
-        if (visionFileset && currentModeNeedsPoseTracker()) await ensurePoseTracker();
-        if (handTracker) await handTracker.setOptions({ numHands: 2 });
-    } else {
-        guessLabelUI.innerText = "Mode: ASL Spelling";
-        rawOutputUI.innerText = "...";
-        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
-        activeAIModel = aslModel;
-        activeVocabulary = aslVocab;
-        activeModelMetadata = aslModelMetadata;
-        if (handTracker) await handTracker.setOptions({ numHands: 1 });
+    const generation = ++modeGeneration;
+    const resumeDetection = Boolean(cameraStream && !webcamVideo.paused);
+    isDetecting = false;
+    window.cancelAnimationFrame(animationFrame);
+    setCaptureGuide("analyzing", "Loading recognition", `Preparing ${modeLabel}…`, 0);
+    cameraToggleBtn.disabled = true;
+    try {
+        await configureSelectedMode();
+        if (disposed || generation !== modeGeneration) return;
+        guessLabelDisplay.innerText = `Mode: ${modeLabel}`;
+        rawExtractionDisplay.innerText = modeId === "csl_word" ? "[CSL]" : modeId === "asl_word" ? getAslWordRuntimeLabel() : "...";
+        if (resumeDetection) {
+            isDetecting = true;
+            prepareForNextCapture();
+            processVideoFrames();
+        } else {
+            setCaptureGuide("off", "Camera off", "Recognition is ready. Start the camera when you are ready.", 0);
+        }
+    } catch (error) {
+        if (!disposed && generation === modeGeneration) {
+            window.stopCam();
+            setCaptureGuide("off", "Recognition unavailable", error.message, 0);
+        }
+    } finally {
+        if (!disposed && generation === modeGeneration) cameraToggleBtn.disabled = false;
     }
-    if (isDetecting) prepareForNextCapture();
 }
 
 // clicking anywhere else closes the dropdown
@@ -535,77 +605,20 @@ window.addEventListener('click', function (event) {
         }
     }
 
-});
-
-
-
-window.changeMode = async function () {
-    const selector = document.getElementById('modeSelector');
-    currentTrackingMode = selector.value;
-    lastCslTopGuessDiagnostic = null;
-    letterSessionCountdownComplete = false;
-    window.clearWord();
-    staticSignStreak = 0; dynamicSignStreak = 0;
-    clearHandCache();
-    stopWlaslCaptureLoop();
-
-
-    const outputLangUI = document.getElementById('outputLangLabel');
-
-    if (currentTrackingMode === "csl_word") {
-        guessLabelDisplay.innerText = "Mode: CSL Words";
-        rawExtractionDisplay.innerText = "[CSL]";
-        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
-        activeAIModel = cslModel;
-        activeVocabulary = cslVocab;
-        activeModelMetadata = cslModelMetadata;
-        if (handTracker) await handTracker.setOptions({ numHands: 2 });
-
-    } else if (currentTrackingMode === "asl_word") {
-        guessLabelDisplay.innerText = "Mode: ASL Words";
-        await checkWlaslBackend();
-        rawExtractionDisplay.innerText = (wlaslBackendReady || aslWordModel)
-            ? "[ASL WLASL300]"
-            : "ASL Words backend is waking or unavailable";
-        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
-        activeAIModel = aslWordModel;
-        activeVocabulary = aslWordVocab;
-        activeModelMetadata = aslWordModelMetadata;
-        if (visionFileset && currentModeNeedsPoseTracker()) await ensurePoseTracker();
-        if (handTracker) await handTracker.setOptions({ numHands: 2 });
-    } else {
-        guessLabelDisplay.innerText = "Mode: ASL Spelling";
-        rawExtractionDisplay.innerText = "...";
-        if (outputLangUI) outputLangUI.innerText = "Khmer + English";
-        activeAIModel = aslModel;
-        activeVocabulary = aslVocab;
-        activeModelMetadata = aslModelMetadata;
-        if (handTracker) await handTracker.setOptions({ numHands: 1 });
-    }
-    if (isDetecting) prepareForNextCapture();
-}
-
+}, { signal: listeners.signal });
 
 window.startCam = async function () {
+    if (startingCamera || disposed) return;
+    startingCamera = true;
+    const generation = ++modeGeneration;
+    cameraToggleBtn.disabled = true;
+    cameraToggleBtn.textContent = "Loading recognition…";
+    setCaptureGuide("analyzing", "Loading recognition", "Preparing detection before opening your camera…", 0);
     try {
-        if (!isModelsReady) {
-            const originalText = cameraToggleBtn.textContent;
-            cameraToggleBtn.textContent = "Loading AI Models...";
-            cameraToggleBtn.disabled = true;
-            setCaptureGuide("analyzing", "Loading recognition", "The camera will be ready shortly.", 0);
-            await modelInitPromise;
-            cameraToggleBtn.disabled = false;
-            cameraToggleBtn.textContent = originalText;
-        }
-
-        // Enforce the selected mode after initialization as well. This closes a
-        // race where choosing a word mode during startup left the tracker at 1 hand.
-        await handTracker.setOptions({
-            numHands: currentTrackingMode === "asl_letter" ? 1 : 2
-        });
-        if (currentModeNeedsPoseTracker()) await ensurePoseTracker();
-
-        if (cameraStream) window.stopCam();
+        await configureSelectedMode();
+        if (disposed || generation !== modeGeneration) return;
+        cameraToggleBtn.textContent = "Opening camera…";
+        setCaptureGuide("analyzing", "Opening camera", "Allow camera access to start detecting signs.", 0);
 
         // Request a sharper 4:3 phone feed while keeping recognition work
         // throttled separately below. `ideal` lets lower-end cameras fall back
@@ -620,14 +633,16 @@ window.startCam = async function () {
             }
             : { facingMode: activeCameraFacing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
 
-        cameraStream = await navigator.mediaDevices.getUserMedia({ video: cameraConfig });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: cameraConfig });
+        if (disposed || generation !== modeGeneration) {
+            stream.getTracks().forEach(track => track.stop());
+            return;
+        }
+        cameraStream = stream;
 
         webcamVideo.srcObject = cameraStream;
         await webcamVideo.play();
-
-        if (currentTrackingMode === "asl_word" || currentTrackingMode === "asl_letter") {
-            await checkWlaslBackend();
-        }
+        if (disposed || generation !== modeGeneration) return;
 
         // only mirror the video if we're using the front-facing "selfie" camera
         const videoContainer = webcamVideo.closest('.video-container');
@@ -644,6 +659,7 @@ window.startCam = async function () {
         isDetecting = true;
         prepareForNextCapture();
         processVideoFrames();
+        if (!isDetecting) return;
 
         cameraToggleBtn.textContent = "Stop Camera";
         cameraToggleBtn.onclick = window.stopCam;
@@ -654,13 +670,22 @@ window.startCam = async function () {
             pauseToggleBtn.onclick = window.pauseCam;
         }
     } catch (err) {
-        setCaptureGuide("off", "Camera unavailable", "Check camera permission, then try again.", 0);
-        alert("Unable to access camera. Please check your permissions.");
+        if (!disposed) {
+            window.stopCam();
+            setCaptureGuide("off", "Unable to start detection", `${err.message || "Check camera permission and your connection."} Try Start Camera again.`, 0);
+        }
         console.error(err);
+    } finally {
+        startingCamera = false;
+        if (!disposed) {
+            cameraToggleBtn.disabled = false;
+            cameraToggleBtn.textContent = isDetecting ? "Stop Camera" : "Start Camera";
+        }
     }
 }
 
 window.pauseCam = function () {
+    window.cancelAnimationFrame(animationFrame);
     webcamVideo.pause();
     isDetecting = false;
     cancelCaptureCountdown();
@@ -678,9 +703,6 @@ window.pauseCam = function () {
 window.resumeCam = async function () {
     clearHandCache();
     await webcamVideo.play();
-    if (currentTrackingMode === "asl_word" || currentTrackingMode === "asl_letter") {
-        await checkWlaslBackend();
-    }
     lastDetectionAt = 0;
     isDetecting = true;
     prepareForNextCapture();
@@ -693,6 +715,8 @@ window.resumeCam = async function () {
 }
 
 window.stopCam = function () {
+    ++modeGeneration;
+    window.cancelAnimationFrame(animationFrame);
     cancelCaptureCountdown();
     setCaptureActive(false);
     stopWlaslCaptureLoop();
@@ -882,6 +906,7 @@ async function submitWlaslClip(clip, generation, trackedHandFrames) {
 }
 
 window.flipCam = async function () {
+    if (startingCamera || cameraToggleBtn.disabled) return;
     activeCameraFacing = activeCameraFacing === "user" ? "environment" : "user";
     window.stopCam();
     await window.startCam();
@@ -914,7 +939,17 @@ window.backspaceWord = function () {
 }
 
 window.translateSentence = async function () {
-    if (!accumulatedWord) return;
+    if (translationInFlight) return;
+    syncSentenceState();
+    if (!accumulatedWord) {
+        setFinalTranslation("Add signs to your sentence before interpreting the context.");
+        return;
+    }
+    const input = accumulatedWord;
+    translationInFlight = true;
+    const button = document.getElementById('translateSentenceBtn');
+    button.disabled = true;
+    button.textContent = "Interpreting…";
 
     setFinalTranslation("Dexter is thinking...");
 
@@ -922,16 +957,17 @@ window.translateSentence = async function () {
         const response = await fetch('/api/translate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ aslString: accumulatedWord })
+            body: JSON.stringify({ aslString: input }),
+            signal: AbortSignal.timeout(25000)
         });
 
+        const data = await response.json().catch(() => ({}));
+        if (disposed || input !== accumulatedWord) return;
         if (!response.ok) {
-            console.error("Backend error:", await response.text());
-            setFinalTranslation("Error: Translation service failed.");
+            setFinalTranslation(data.error || "Translation service is unavailable. Please try again.");
             return;
         }
 
-        const data = await response.json();
         const translation = data?.translation;
         const hasBilingualTranslation = typeof translation?.khmer === "string"
             && Boolean(translation.khmer.trim())
@@ -943,7 +979,13 @@ window.translateSentence = async function () {
         );
     } catch (err) {
         console.error("Network issue:", err);
-        setFinalTranslation("Network Error. Please try again.");
+        if (!disposed && input === accumulatedWord) setFinalTranslation(err.name === "TimeoutError"
+            ? "Translation took too long. Please try again."
+            : "Network error. Check your connection and try again.");
+    } finally {
+        translationInFlight = false;
+        button.disabled = false;
+        button.textContent = "Interpret Context";
     }
 }
 
@@ -962,8 +1004,7 @@ function updateSpeakTranslationButton(isSpeaking = false) {
     if (!speakTranslationButton) return;
 
     const speechItem = getSelectedSpeakableTranslation();
-    const canSpeak = proSpeechEnabled
-        && (speechSynthesisSupported || speechAudioSupported)
+    const canSpeak = (speechSynthesisSupported || speechAudioSupported)
         && Boolean(speechItem);
     const speechLabel = speechItem ? `${speechItem.label} translation` : "translation";
     if (speechLanguageSelect) speechLanguageSelect.disabled = !canSpeak;
@@ -973,11 +1014,10 @@ function updateSpeakTranslationButton(isSpeaking = false) {
         "aria-label",
         isSpeaking ? `Stop speaking ${speechLabel}` : `Speak ${speechLabel}`
     );
-    speakTranslationButton.title = !proSpeechEnabled
-        ? "Text to speech is available on Dexter Pro"
-        : canSpeak
-            ? (isSpeaking ? `Stop speaking ${speechLabel}` : `Speak ${speechLabel}`)
-            : "Text to speech is not supported by this browser";
+    speakTranslationButton.title = canSpeak
+        ? (isSpeaking ? `Stop speaking ${speechLabel}` : `Speak ${speechLabel}`)
+        : !speechItem ? "Interpret a sentence to enable speech"
+        : "Text to speech is not supported by this browser";
 }
 
 function setSpeechStatus(message = "", isError = false) {
@@ -1074,10 +1114,6 @@ function playGeneratedTranslation(speechItem) {
 }
 
 window.speakTranslation = function () {
-    if (!proSpeechEnabled) {
-        setSpeechStatus("Upgrade to Pro for text to speech.", true);
-        return;
-    }
     const speechItem = getSelectedSpeakableTranslation();
     if (!speechItem) return;
 
@@ -1095,7 +1131,7 @@ window.speakTranslation = function () {
     speakSelectedTranslation(speechItem);
 }
 
-speechLanguageSelect?.addEventListener("change", cancelTranslationSpeech);
+speechLanguageSelect?.addEventListener("change", cancelTranslationSpeech, { signal: listeners.signal });
 
 updateSpeakTranslationButton(false);
 
@@ -1216,6 +1252,7 @@ function clearHandCache({ preserveReleaseGate = false } = {}) {
     resetCadtCslCaptureState();
     motionTimestampBuffer = [];
     wlaslFrameBuffer = [];
+    commonAslWordFrames = [];
     lastWlaslInferenceAt = 0;
     wristVelocityBuffer = [];
     routingWristHistory = { Left: [], Right: [] };
@@ -1451,6 +1488,8 @@ function updateStaticRelease(handData, timestamp) {
 function resetWordRecognitionState() {
     wordAwaitingRelease = false;
     acceptedWordLabel = "";
+    acceptedWordRequiresShapeChange = false;
+    acceptedWordSignature = [];
     dynamicPauseElapsedMs = 0;
     dynamicPauseLastTickAt = null;
     dynamicPauseLastSignature = [];
@@ -1518,17 +1557,27 @@ function updateDynamicLetterRelease(handData, timestamp) {
     return true;
 }
 
-function lockWordRecognition(label, signature = latestHandSignature) {
+function lockWordRecognition(
+    label,
+    signature = latestHandSignature,
+    { requireShapeChange = false } = {}
+) {
     setCaptureActive(false);
     wordAwaitingRelease = true;
     acceptedWordLabel = label;
+    acceptedWordRequiresShapeChange = requireShapeChange;
+    acceptedWordSignature = requireShapeChange
+        ? normalizeHandShapeSignature(signature)
+        : [];
     dynamicPauseElapsedMs = 0;
     dynamicPauseLastTickAt = performance.now();
     dynamicPauseLastSignature = copyHandSignature(signature);
     setCaptureGuide(
         "accepted",
         `${label} accepted`,
-        "Finish the movement, then pause briefly to continue.",
+        requireShapeChange
+            ? "Release or clearly change your handshape to continue."
+            : "Finish the movement, then pause briefly to continue.",
         0
     );
 }
@@ -1544,6 +1593,37 @@ function updateWordRelease(handData, timestamp) {
     const velocity = rawDelta > 0 && Number.isFinite(movement)
         ? movement * 1000 / rawDelta
         : Infinity;
+    if (acceptedWordRequiresShapeChange) {
+        const currentShape = normalizeHandShapeSignature(currentSignature);
+        const shapeChanged = currentShape.length === 0
+            || handSignatureDistance(acceptedWordSignature, currentShape)
+                >= STATIC_RELEASE_SHAPE_THRESHOLD;
+        dynamicPauseElapsedMs = updateReleaseProgress({
+            elapsedMs: dynamicPauseElapsedMs,
+            deltaMs: rawDelta,
+            isReleased: shapeChanged,
+            durationMs: STATIC_RELEASE_DURATION_MS
+        });
+        dynamicPauseLastTickAt = timestamp;
+        dynamicPauseLastSignature = copyHandSignature(currentSignature);
+
+        const progress = dynamicPauseElapsedMs / STATIC_RELEASE_DURATION_MS;
+        setCaptureGuide(
+            "accepted",
+            shapeChanged ? "Release detected" : `${acceptedWordLabel} accepted`,
+            shapeChanged
+                ? "Keep the changed handshape until the bar is full."
+                : "Release or clearly change your handshape to continue.",
+            progress
+        );
+        if (progress < 1) return;
+
+        resetWordRecognitionState();
+        clearHandCache();
+        prepareForNextCapture();
+        return;
+    }
+
     const isPaused = currentSignature.length === 0
         || (dynamicPauseLastSignature.length > 0 && velocity <= DYNAMIC_REARM_STILL_VELOCITY);
 
@@ -1665,10 +1745,11 @@ function modelAcceptsCurrentBuffer(model, metadata = null) {
 
 // the main loop — runs every animation frame while the camera is on
 async function processVideoFrames() {
-    if (!isDetecting) return;
+    if (!isDetecting || disposed) return;
+    try {
 
     if (webcamVideo.videoWidth === 0) {
-        window.requestAnimationFrame(processVideoFrames);
+        animationFrame = window.requestAnimationFrame(processVideoFrames);
         return;
     }
 
@@ -1683,14 +1764,14 @@ async function processVideoFrames() {
         // A higher-resolution preview should not increase phone inference
         // frequency. This retains the former 15 FPS recognition workload.
         if (isMobileDevice && currentTimeMs - lastDetectionAt < MOBILE_DETECTION_INTERVAL_MS) {
-            window.requestAnimationFrame(processVideoFrames);
+            animationFrame = window.requestAnimationFrame(processVideoFrames);
             return;
         }
         lastDetectionAt = currentTimeMs;
         resizeCanvas();
 
         if (!handTracker) {
-            window.requestAnimationFrame(processVideoFrames);
+            animationFrame = window.requestAnimationFrame(processVideoFrames);
             return;
         }
 
@@ -1712,7 +1793,31 @@ async function processVideoFrames() {
             cslHandLossResetComplete = false;
         }
 
-        if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
+        if (currentTrackingMode === "asl_word" && !wordAwaitingRelease) {
+            commonAslWordFrames = appendCommonAslFrame(
+                commonAslWordFrames,
+                detectedHands,
+                detectedPose,
+                currentTimeMs
+            );
+            const commonWordMatch = captureIsActive && !captureCountdownTimer
+                ? detectCommonAslWord(commonAslWordFrames)
+                : null;
+            if (commonWordMatch) {
+                const releaseSignature = latestHandSignature;
+                stopWlaslCaptureLoop();
+                showDynamicMatch(commonWordMatch.word, commonWordMatch.confidence);
+                acceptDynamicWord([{
+                    word: commonWordMatch.word,
+                    conf: commonWordMatch.confidence
+                }], releaseSignature, { requireShapeChange: true });
+                clearHandCache({ preserveReleaseGate: true });
+            }
+        }
+
+        if (wordAwaitingRelease) {
+            updateWordRelease(detectedHands, currentTimeMs);
+        } else if (currentTrackingMode === "asl_word" && wlaslBackendReady) {
             // The backend consumes the camera clip directly; do not also run
             // the legacy landmark word model or let its idle state overwrite UI.
             // Keep the recorder continuous, but discard clips that do not
@@ -1733,8 +1838,6 @@ async function processVideoFrames() {
             updateStaticRelease(detectedHands, currentTimeMs);
         } else if (dynamicLetterAwaitingRelease) {
             updateDynamicLetterRelease(detectedHands, currentTimeMs);
-        } else if (wordAwaitingRelease) {
-            updateWordRelease(detectedHands, currentTimeMs);
         } else if (!captureIsActive) {
             if (wlaslRequestInFlight) {
                 updateWlaslCaptureProgress(currentTimeMs);
@@ -1776,7 +1879,14 @@ async function processVideoFrames() {
         }
     }
 
-    window.requestAnimationFrame(processVideoFrames);
+    if (isDetecting && !disposed) animationFrame = window.requestAnimationFrame(processVideoFrames);
+    } catch (error) {
+        if (!disposed) {
+            window.stopCam();
+            setCaptureGuide("off", "Detection stopped", "Recognition failed. Try Start Camera again.", 0);
+        }
+        console.error("Detection failed", error);
+    }
 }
 
 function resizeCanvas() {
@@ -2054,7 +2164,7 @@ function inferDynamicGesture() {
             return;
         }
         if (currentTrackingMode === "asl_word" && !aslWordModel && !wlaslBackendReady) {
-            rawExtractionDisplay.innerText = "ASL Words backend is waking or unavailable";
+            rawExtractionDisplay.innerText = "Try Hello, OK, or I love you";
         }
         showDynamicIdle(0, true);
         return;
@@ -2596,7 +2706,7 @@ function acceptStaticLetter(letter) {
 function acceptDynamicWord(
     options,
     releaseSignature = latestHandSignature,
-    { lockRecognition = true } = {}
+    { lockRecognition = true, requireShapeChange = false } = {}
 ) {
     const primaryWord = options[0].word;
     rawExtractionDisplay.innerText = primaryWord;
@@ -2648,7 +2758,7 @@ function acceptDynamicWord(
         if (currentTrackingMode === "asl_letter") {
             lockDynamicLetterRecognition(primaryWord, releaseSignature);
         }
-        else lockWordRecognition(primaryWord, releaseSignature);
+        else lockWordRecognition(primaryWord, releaseSignature, { requireShapeChange });
     }
 }
 
@@ -2701,14 +2811,37 @@ function resetInactivity() {
 // Next.js renders the controls without inline event attributes. Bind the same
 // global handlers after this client-only module has initialized.
 cameraToggleBtn.onclick = window.startCam;
-document.getElementById('modeDropdownButton')?.addEventListener('click', window.toggleDropdown);
+document.getElementById('modeDropdownButton')?.addEventListener('click', window.toggleDropdown, { signal: listeners.signal });
 document.querySelectorAll('[data-mode-id]').forEach(item => {
     item.addEventListener('click', () => {
         window.selectMode(item.dataset.modeId, item.dataset.modeLabel, item);
-    });
+    }, { signal: listeners.signal });
 });
-document.getElementById('flipCameraBtn')?.addEventListener('click', window.flipCam);
-document.getElementById('backspaceWordBtn')?.addEventListener('click', window.backspaceWord);
-document.getElementById('clearWordBtn')?.addEventListener('click', window.clearWord);
-document.getElementById('translateSentenceBtn')?.addEventListener('click', window.translateSentence);
-document.getElementById('speakTranslationBtn')?.addEventListener('click', window.speakTranslation);
+document.getElementById('flipCameraBtn')?.addEventListener('click', window.flipCam, { signal: listeners.signal });
+document.getElementById('backspaceWordBtn')?.addEventListener('click', window.backspaceWord, { signal: listeners.signal });
+document.getElementById('clearWordBtn')?.addEventListener('click', window.clearWord, { signal: listeners.signal });
+document.getElementById('translateSentenceBtn')?.addEventListener('click', window.translateSentence, { signal: listeners.signal });
+document.getElementById('speakTranslationBtn')?.addEventListener('click', window.speakTranslation, { signal: listeners.signal });
+
+cameraToggleBtn.disabled = false;
+cameraToggleBtn.textContent = "Start Camera";
+void ensureModelsReady().catch(error => {
+    if (!disposed && !startingCamera) setCaptureGuide("off", "Recognition unavailable", "Check your connection, then try Start Camera again.", 0);
+    console.error("Recognition initialization failed", error);
+});
+const stopCamera = window.stopCam;
+return () => {
+    disposed = true;
+    listeners.abort();
+    stopCamera();
+    cancelTranslationSpeech();
+    cameraToggleBtn.onclick = null;
+    if (pauseToggleBtn) pauseToggleBtn.onclick = null;
+    // Wait for in-flight model loads before releasing their GPU resources.
+    Promise.allSettled([modelInitPromise, modeConfiguration, ...modeLoads.values()]).then(() => {
+        handTracker?.close();
+        poseTracker?.close();
+        for (const model of new Set([aslModel, aslWordModel, cslModel, wlaslModel])) model?.dispose();
+    });
+};
+}
